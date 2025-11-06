@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bluetooth Trilateration Simulator - RSSI Edition</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Bluetooth Trilateration Simulator</h1>
+            <p class="subtitle">RSSI-to-Distance Conversion | v1.1</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Left Sidebar: Settings -->
+            <aside class="sidebar sidebar-left">
+                <div class="panel">
+                    <h2>🔧 RSSI Model Settings</h2>
+
+                    <div class="control-group">
+                        <label for="txPower">Tx Power @ 1m (dBm):</label>
+                        <input type="number" id="txPower" value="-59" step="1" min="-80" max="-30">
+                        <span class="value-display">-59 dBm</span>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="pathLossExponent">Path Loss Exponent (n):</label>
+                        <input type="range" id="pathLossExponent" value="2.7" step="0.1" min="2.0" max="4.0">
+                        <span class="value-display">2.7</span>
+                        <small>(2.0 = free space, 2.7-3.5 = indoor)</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="minRSSI">Min RSSI Threshold (dBm):</label>
+                        <input type="number" id="minRSSI" value="-100" step="5" min="-120" max="-60">
+                        <span class="value-display">-100 dBm</span>
+                        <small>(Below = no circle)</small>
+                    </div>
+
+                    <hr>
+
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="enableNoise">
+                            Enable RSSI Noise (±3-8 dB)
+                        </label>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="noiseLevel">Noise Std Dev (dB):</label>
+                        <input type="range" id="noiseLevel" value="5" step="0.5" min="0" max="10" disabled>
+                        <span class="value-display">5</span>
+                    </div>
+
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="showDebugLines">
+                            Show True Distance Lines (Debug)
+                        </label>
+                    </div>
+
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="enableHeatmap">
+                            Enable RSSI Heatmap
+                        </label>
+                    </div>
+
+                    <hr>
+
+                    <div class="control-group">
+                        <label for="numRadios">Number of Radios:</label>
+                        <select id="numRadios">
+                            <option value="3">3 Radios</option>
+                            <option value="4" selected>4 Radios</option>
+                            <option value="5">5 Radios</option>
+                            <option value="6">6 Radios</option>
+                        </select>
+                    </div>
+
+                    <button id="resetBtn" class="btn-primary">Reset Positions</button>
+                </div>
+
+                <div class="panel legend">
+                    <h3>Legend</h3>
+                    <div class="legend-item">
+                        <span class="legend-radio"></span> Radio (Tx)
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-device"></span> Device (Rx)
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-estimated"></span> Est. Position
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-true"></span> + True Position
+                    </div>
+                    <div class="legend-item">
+                        <div style="width: 30px; height: 3px; background: rgba(100, 150, 255, 0.3); border: 1px solid rgba(100, 150, 255, 0.6);"></div>
+                        Circle = Est. distance from RSSI
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Center: Canvas -->
+            <main class="canvas-container">
+                <canvas id="mainCanvas" width="800" height="600"></canvas>
+                <div id="statusMessage" class="status-message"></div>
+            </main>
+
+            <!-- Right Sidebar: Data Table -->
+            <aside class="sidebar sidebar-right">
+                <div class="panel">
+                    <h2>📊 Radio Data</h2>
+                    <div id="radioDataTable"></div>
+                </div>
+
+                <div class="panel">
+                    <h2>📍 Position Data</h2>
+                    <div id="positionData"></div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

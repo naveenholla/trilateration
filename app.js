@@ -1,13 +1,58 @@
 // =============================================================================
-// Bluetooth Trilateration Simulator - RSSI Edition
-// Version 1.1
+// Bluetooth Trilateration Simulator - RSSI Edition with Three.js
+// Version 1.2
 // =============================================================================
 
 class TrilaterationSimulator {
     constructor() {
-        // Canvas setup
+        // Canvas container
         this.canvas = document.getElementById('mainCanvas');
-        this.ctx = this.canvas.getContext('2d');
+        const width = this.canvas.width;
+        const height = this.canvas.height;
+
+        // Three.js setup
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0xffffff);
+
+        // Orthographic camera for 2D view (looking down at XY plane)
+        const aspect = width / height;
+        this.camera = new THREE.OrthographicCamera(
+            -width / 2, width / 2,    // left, right
+            height / 2, -height / 2,  // top, bottom (inverted for canvas-like coords)
+            0.1, 1000                 // near, far
+        );
+        this.camera.position.z = 10;
+        this.camera.lookAt(0, 0, 0);
+
+        // Renderer
+        this.renderer = new THREE.WebGLRenderer({
+            canvas: this.canvas,
+            antialias: true,
+            alpha: false
+        });
+        this.renderer.setSize(width, height);
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+
+        // Raycaster for mouse interaction
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+
+        // Groups for organizing objects
+        this.gridGroup = new THREE.Group();
+        this.heatmapGroup = new THREE.Group();
+        this.circlesGroup = new THREE.Group();
+        this.debugLinesGroup = new THREE.Group();
+        this.radiosGroup = new THREE.Group();
+        this.deviceGroup = new THREE.Group();
+        this.estimatedGroup = new THREE.Group();
+
+        this.scene.add(this.gridGroup);
+        this.scene.add(this.heatmapGroup);
+        this.scene.add(this.circlesGroup);
+        this.scene.add(this.debugLinesGroup);
+        this.scene.add(this.radiosGroup);
+        this.scene.add(this.deviceGroup);
+        this.scene.add(this.estimatedGroup);
 
         // RSSI Model Parameters (configurable)
         this.txPower = -59;           // dBm at 1 meter
@@ -25,14 +70,18 @@ class TrilaterationSimulator {
         // Scale factor (pixels per meter)
         this.scale = 40; // 40 pixels = 1 meter
 
+        // Coordinate system adjustment (Three.js uses center origin)
+        this.width = width;
+        this.height = height;
+
         // Radios (transmitters)
         this.radios = [];
         this.numRadios = 4;
 
-        // Device (receiver)
+        // Device (receiver) - stored in canvas coordinates
         this.device = {
-            x: this.canvas.width / 2,
-            y: this.canvas.height / 2,
+            x: width / 2,
+            y: height / 2,
             radius: 12
         };
 
@@ -42,43 +91,62 @@ class TrilaterationSimulator {
         // Interaction state
         this.dragging = null;
         this.dragOffset = { x: 0, y: 0 };
+        this.interactiveObjects = [];
 
         this.init();
     }
 
     init() {
         this.initializeRadios();
+        this.createGrid();
         this.setupEventListeners();
         this.updateUI();
         this.animate();
     }
 
+    // Convert canvas coordinates (origin top-left) to Three.js coordinates (origin center)
+    canvasToThree(x, y) {
+        return {
+            x: x - this.width / 2,
+            y: -(y - this.height / 2),
+            z: 0
+        };
+    }
+
+    // Convert Three.js coordinates to canvas coordinates
+    threeToCanvas(x, y) {
+        return {
+            x: x + this.width / 2,
+            y: -(y - this.height / 2)
+        };
+    }
+
     initializeRadios() {
         this.radios = [];
         const margin = 80;
-        const width = this.canvas.width - 2 * margin;
-        const height = this.canvas.height - 2 * margin;
+        const width = this.width - 2 * margin;
+        const height = this.height - 2 * margin;
 
         // Position radios in a pattern based on count
         if (this.numRadios === 3) {
             // Triangle
             this.radios = [
-                { x: this.canvas.width / 2, y: margin, radius: 10, label: 'R1' },
-                { x: margin, y: this.canvas.height - margin, radius: 10, label: 'R2' },
-                { x: this.canvas.width - margin, y: this.canvas.height - margin, radius: 10, label: 'R3' }
+                { x: this.width / 2, y: margin, radius: 10, label: 'R1' },
+                { x: margin, y: this.height - margin, radius: 10, label: 'R2' },
+                { x: this.width - margin, y: this.height - margin, radius: 10, label: 'R3' }
             ];
         } else if (this.numRadios === 4) {
             // Square corners
             this.radios = [
                 { x: margin, y: margin, radius: 10, label: 'R1' },
-                { x: this.canvas.width - margin, y: margin, radius: 10, label: 'R2' },
-                { x: this.canvas.width - margin, y: this.canvas.height - margin, radius: 10, label: 'R3' },
-                { x: margin, y: this.canvas.height - margin, radius: 10, label: 'R4' }
+                { x: this.width - margin, y: margin, radius: 10, label: 'R2' },
+                { x: this.width - margin, y: this.height - margin, radius: 10, label: 'R3' },
+                { x: margin, y: this.height - margin, radius: 10, label: 'R4' }
             ];
         } else if (this.numRadios === 5) {
             // Pentagon
-            const centerX = this.canvas.width / 2;
-            const centerY = this.canvas.height / 2;
+            const centerX = this.width / 2;
+            const centerY = this.height / 2;
             const radius = Math.min(width, height) / 2;
             for (let i = 0; i < 5; i++) {
                 const angle = (i * 2 * Math.PI / 5) - Math.PI / 2;
@@ -91,8 +159,8 @@ class TrilaterationSimulator {
             }
         } else if (this.numRadios === 6) {
             // Hexagon
-            const centerX = this.canvas.width / 2;
-            const centerY = this.canvas.height / 2;
+            const centerX = this.width / 2;
+            const centerY = this.height / 2;
             const radius = Math.min(width, height) / 2;
             for (let i = 0; i < 6; i++) {
                 const angle = (i * 2 * Math.PI / 6) - Math.PI / 2;
@@ -103,6 +171,36 @@ class TrilaterationSimulator {
                     label: `R${i + 1}`
                 });
             }
+        }
+    }
+
+    createGrid() {
+        // Clear existing grid
+        this.gridGroup.clear();
+
+        const gridColor = 0xf0f0f0;
+        const material = new THREE.LineBasicMaterial({ color: gridColor });
+
+        // Vertical lines (every meter)
+        for (let x = 0; x < this.width; x += this.scale) {
+            const threePos = this.canvasToThree(x, 0);
+            const geometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(threePos.x, this.height / 2, 0),
+                new THREE.Vector3(threePos.x, -this.height / 2, 0)
+            ]);
+            const line = new THREE.Line(geometry, material);
+            this.gridGroup.add(line);
+        }
+
+        // Horizontal lines
+        for (let y = 0; y < this.height; y += this.scale) {
+            const threePos = this.canvasToThree(0, y);
+            const geometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(-this.width / 2, threePos.y, 0),
+                new THREE.Vector3(this.width / 2, threePos.y, 0)
+            ]);
+            const line = new THREE.Line(geometry, material);
+            this.gridGroup.add(line);
         }
     }
 
@@ -156,8 +254,8 @@ class TrilaterationSimulator {
 
         document.getElementById('resetBtn').addEventListener('click', () => {
             this.initializeRadios();
-            this.device.x = this.canvas.width / 2;
-            this.device.y = this.canvas.height / 2;
+            this.device.x = this.width / 2;
+            this.device.y = this.height / 2;
             this.updateUI();
         });
     }
@@ -276,7 +374,6 @@ class TrilaterationSimulator {
         }
 
         // Use first 3 measurements for trilateration
-        // (Can be extended to weighted least squares for N>3)
         const [m1, m2, m3] = measurements.slice(0, 3);
 
         // Convert estimated distances back to pixels
@@ -316,88 +413,43 @@ class TrilaterationSimulator {
     }
 
     // =========================================================================
-    // Rendering
+    // Three.js Rendering
     // =========================================================================
 
     animate() {
-        this.render();
         requestAnimationFrame(() => this.animate());
+        this.render();
     }
 
     render() {
-        // Clear canvas
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-
-        // Draw grid
-        this.drawGrid();
-
-        // Draw heatmap if enabled
-        if (this.enableHeatmap) {
-            this.drawHeatmap();
-        }
-
         // Perform trilateration and get measurements
         const measurements = this.performTrilateration();
 
-        // Draw ranging circles (estimated distances)
-        this.drawRangingCircles(measurements);
-
-        // Draw debug lines if enabled
-        if (this.showDebugLines) {
-            this.drawDebugLines();
-        }
-
-        // Draw radios
-        for (const radio of this.radios) {
-            this.drawRadio(radio);
-        }
-
-        // Draw device (true position)
-        this.drawDevice();
-
-        // Draw estimated position if available
-        if (this.estimatedPosition) {
-            this.drawEstimatedPosition();
-            this.drawPositionError();
-        }
+        // Update all visual elements
+        this.updateHeatmap();
+        this.updateRangingCircles(measurements);
+        this.updateDebugLines();
+        this.updateRadios();
+        this.updateDevice();
+        this.updateEstimatedPosition();
 
         // Update data tables
         this.updateDataTables(measurements);
+
+        // Render the scene
+        this.renderer.render(this.scene, this.camera);
     }
 
-    drawGrid() {
-        this.ctx.strokeStyle = '#f0f0f0';
-        this.ctx.lineWidth = 1;
+    updateHeatmap() {
+        this.heatmapGroup.clear();
 
-        // Vertical lines (every meter)
-        for (let x = 0; x < this.canvas.width; x += this.scale) {
-            this.ctx.beginPath();
-            this.ctx.moveTo(x, 0);
-            this.ctx.lineTo(x, this.canvas.height);
-            this.ctx.stroke();
-        }
+        if (!this.enableHeatmap) return;
 
-        // Horizontal lines
-        for (let y = 0; y < this.canvas.height; y += this.scale) {
-            this.ctx.beginPath();
-            this.ctx.moveTo(0, y);
-            this.ctx.lineTo(this.canvas.width, y);
-            this.ctx.stroke();
-        }
+        const resolution = 20;
+        const geometry = new THREE.PlaneGeometry(resolution, resolution);
 
-        // Add scale indicator
-        this.ctx.fillStyle = '#888';
-        this.ctx.font = '12px monospace';
-        this.ctx.fillText(`Grid: ${this.scale}px = 1m`, 10, this.canvas.height - 10);
-    }
-
-    drawHeatmap() {
-        const resolution = 20; // Pixels between sample points
-        const imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
-
-        for (let x = 0; x < this.canvas.width; x += resolution) {
-            for (let y = 0; y < this.canvas.height; y += resolution) {
-                // Calculate combined RSSI at this point
+        for (let x = 0; x < this.width; x += resolution) {
+            for (let y = 0; y < this.height; y += resolution) {
                 let maxRSSI = -120;
 
                 for (const radio of this.radios) {
@@ -406,151 +458,208 @@ class TrilaterationSimulator {
                     maxRSSI = Math.max(maxRSSI, rssi);
                 }
 
-                // Map RSSI to color (gradient from red to green)
-                const normalized = (maxRSSI + 100) / 40; // -100 to -60 -> 0 to 1
+                const normalized = (maxRSSI + 100) / 40;
                 const clamped = Math.max(0, Math.min(1, normalized));
 
-                const r = Math.floor(255 * (1 - clamped));
-                const g = Math.floor(255 * clamped);
+                const r = 1 - clamped;
+                const g = clamped;
                 const b = 0;
-                const a = 30; // Low opacity
 
-                // Fill the resolution block
-                for (let dx = 0; dx < resolution && x + dx < this.canvas.width; dx++) {
-                    for (let dy = 0; dy < resolution && y + dy < this.canvas.height; dy++) {
-                        const idx = ((y + dy) * this.canvas.width + (x + dx)) * 4;
-                        imageData.data[idx] = r;
-                        imageData.data[idx + 1] = g;
-                        imageData.data[idx + 2] = b;
-                        imageData.data[idx + 3] = a;
-                    }
-                }
+                const material = new THREE.MeshBasicMaterial({
+                    color: new THREE.Color(r, g, b),
+                    transparent: true,
+                    opacity: 0.12
+                });
+
+                const mesh = new THREE.Mesh(geometry, material);
+                const threePos = this.canvasToThree(x, y);
+                mesh.position.set(threePos.x, threePos.y, -1);
+                this.heatmapGroup.add(mesh);
             }
         }
-
-        this.ctx.putImageData(imageData, 0, 0);
     }
 
-    drawRangingCircles(measurements) {
+    updateRangingCircles(measurements) {
+        this.circlesGroup.clear();
+
         for (const m of measurements) {
             const radius = m.estimatedDistance * this.scale;
             const opacity = Math.max(0.2, Math.min(0.7, (m.rssi + 100) / 40));
-            const color = this.getRSSIColor(m.rssi);
+            const colorHex = this.getRSSIColor(m.rssi);
+            const color = new THREE.Color(colorHex);
 
-            // Circle fill
-            this.ctx.beginPath();
-            this.ctx.arc(m.radio.x, m.radio.y, radius, 0, 2 * Math.PI);
-            this.ctx.fillStyle = this.hexToRGBA(color, opacity * 0.1);
-            this.ctx.fill();
+            // Create circle
+            const geometry = new THREE.RingGeometry(radius - 1, radius + 1, 64);
+            const material = new THREE.MeshBasicMaterial({
+                color: color,
+                transparent: true,
+                opacity: opacity,
+                side: THREE.DoubleSide
+            });
 
-            // Circle border
-            this.ctx.strokeStyle = this.hexToRGBA(color, opacity);
-            this.ctx.lineWidth = 2;
-            this.ctx.stroke();
+            const circle = new THREE.Mesh(geometry, material);
+            const threePos = this.canvasToThree(m.radio.x, m.radio.y);
+            circle.position.set(threePos.x, threePos.y, 1);
+            this.circlesGroup.add(circle);
+
+            // Add filled circle with low opacity
+            const fillGeometry = new THREE.CircleGeometry(radius, 64);
+            const fillMaterial = new THREE.MeshBasicMaterial({
+                color: color,
+                transparent: true,
+                opacity: opacity * 0.1,
+                side: THREE.DoubleSide
+            });
+            const fill = new THREE.Mesh(fillGeometry, fillMaterial);
+            fill.position.set(threePos.x, threePos.y, 0.5);
+            this.circlesGroup.add(fill);
         }
     }
 
-    drawDebugLines() {
+    updateDebugLines() {
+        this.debugLinesGroup.clear();
+
+        if (!this.showDebugLines) return;
+
+        const material = new THREE.LineBasicMaterial({
+            color: 0x969696,
+            transparent: true,
+            opacity: 0.3
+        });
+
         for (const radio of this.radios) {
-            this.ctx.beginPath();
-            this.ctx.moveTo(radio.x, radio.y);
-            this.ctx.lineTo(this.device.x, this.device.y);
-            this.ctx.strokeStyle = 'rgba(150, 150, 150, 0.3)';
-            this.ctx.lineWidth = 1;
-            this.ctx.setLineDash([5, 5]);
-            this.ctx.stroke();
-            this.ctx.setLineDash([]);
+            const radioPos = this.canvasToThree(radio.x, radio.y);
+            const devicePos = this.canvasToThree(this.device.x, this.device.y);
+
+            const geometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(radioPos.x, radioPos.y, 0),
+                new THREE.Vector3(devicePos.x, devicePos.y, 0)
+            ]);
+
+            const line = new THREE.Line(geometry, material);
+            this.debugLinesGroup.add(line);
         }
     }
 
-    drawRadio(radio) {
-        // Radio circle
-        this.ctx.beginPath();
-        this.ctx.arc(radio.x, radio.y, radio.radius, 0, 2 * Math.PI);
-        this.ctx.fillStyle = '#4CAF50';
-        this.ctx.fill();
-        this.ctx.strokeStyle = '#2E7D32';
-        this.ctx.lineWidth = 3;
-        this.ctx.stroke();
+    updateRadios() {
+        this.radiosGroup.clear();
+        this.interactiveObjects = [];
 
-        // Label
-        this.ctx.fillStyle = '#000';
-        this.ctx.font = 'bold 12px sans-serif';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(radio.label, radio.x, radio.y - radio.radius - 8);
+        for (const radio of this.radios) {
+            const threePos = this.canvasToThree(radio.x, radio.y);
+
+            // Radio circle
+            const geometry = new THREE.CircleGeometry(radio.radius, 32);
+            const material = new THREE.MeshBasicMaterial({
+                color: 0x4CAF50,
+                side: THREE.DoubleSide
+            });
+            const circle = new THREE.Mesh(geometry, material);
+            circle.position.set(threePos.x, threePos.y, 3);
+            circle.userData = { type: 'radio', radio: radio };
+            this.radiosGroup.add(circle);
+            this.interactiveObjects.push(circle);
+
+            // Border
+            const borderGeometry = new THREE.RingGeometry(radio.radius - 0.5, radio.radius + 1.5, 32);
+            const borderMaterial = new THREE.MeshBasicMaterial({
+                color: 0x2E7D32,
+                side: THREE.DoubleSide
+            });
+            const border = new THREE.Mesh(borderGeometry, borderMaterial);
+            border.position.set(threePos.x, threePos.y, 3.1);
+            this.radiosGroup.add(border);
+        }
     }
 
-    drawDevice() {
+    updateDevice() {
+        this.deviceGroup.clear();
+
+        const threePos = this.canvasToThree(this.device.x, this.device.y);
+
         // Device circle
-        this.ctx.beginPath();
-        this.ctx.arc(this.device.x, this.device.y, this.device.radius, 0, 2 * Math.PI);
-        this.ctx.fillStyle = '#FF5722';
-        this.ctx.fill();
-        this.ctx.strokeStyle = '#D84315';
-        this.ctx.lineWidth = 3;
-        this.ctx.stroke();
+        const geometry = new THREE.CircleGeometry(this.device.radius, 32);
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xFF5722,
+            side: THREE.DoubleSide
+        });
+        const circle = new THREE.Mesh(geometry, material);
+        circle.position.set(threePos.x, threePos.y, 3);
+        circle.userData = { type: 'device', device: this.device };
+        this.deviceGroup.add(circle);
+        this.interactiveObjects.push(circle);
 
-        // Cross marker for true position
-        this.ctx.strokeStyle = '#FFC107';
-        this.ctx.lineWidth = 3;
+        // Border
+        const borderGeometry = new THREE.RingGeometry(this.device.radius - 0.5, this.device.radius + 1.5, 32);
+        const borderMaterial = new THREE.MeshBasicMaterial({
+            color: 0xD84315,
+            side: THREE.DoubleSide
+        });
+        const border = new THREE.Mesh(borderGeometry, borderMaterial);
+        border.position.set(threePos.x, threePos.y, 3.1);
+        this.deviceGroup.add(border);
+
+        // Cross marker
+        const crossMaterial = new THREE.LineBasicMaterial({ color: 0xFFC107 });
         const crossSize = 8;
-        this.ctx.beginPath();
-        this.ctx.moveTo(this.device.x - crossSize, this.device.y);
-        this.ctx.lineTo(this.device.x + crossSize, this.device.y);
-        this.ctx.stroke();
-        this.ctx.beginPath();
-        this.ctx.moveTo(this.device.x, this.device.y - crossSize);
-        this.ctx.lineTo(this.device.x, this.device.y + crossSize);
-        this.ctx.stroke();
 
-        // Label
-        this.ctx.fillStyle = '#000';
-        this.ctx.font = 'bold 12px sans-serif';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText('Device (True)', this.device.x, this.device.y + this.device.radius + 18);
+        const hLine = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(threePos.x - crossSize, threePos.y, 3.2),
+            new THREE.Vector3(threePos.x + crossSize, threePos.y, 3.2)
+        ]);
+        this.deviceGroup.add(new THREE.Line(hLine, crossMaterial));
+
+        const vLine = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(threePos.x, threePos.y - crossSize, 3.2),
+            new THREE.Vector3(threePos.x, threePos.y + crossSize, 3.2)
+        ]);
+        this.deviceGroup.add(new THREE.Line(vLine, crossMaterial));
     }
 
-    drawEstimatedPosition() {
-        const { x, y } = this.estimatedPosition;
+    updateEstimatedPosition() {
+        this.estimatedGroup.clear();
 
-        // Estimated position marker
-        this.ctx.beginPath();
-        this.ctx.arc(x, y, 10, 0, 2 * Math.PI);
-        this.ctx.fillStyle = '#2196F3';
-        this.ctx.fill();
-        this.ctx.strokeStyle = '#1565C0';
-        this.ctx.lineWidth = 3;
-        this.ctx.stroke();
+        if (!this.estimatedPosition) return;
 
-        // Label
-        this.ctx.fillStyle = '#000';
-        this.ctx.font = 'bold 12px sans-serif';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText('Estimated', x, y - 20);
-    }
+        const threePos = this.canvasToThree(this.estimatedPosition.x, this.estimatedPosition.y);
 
-    drawPositionError() {
-        const { x, y } = this.estimatedPosition;
+        // Estimated position circle
+        const geometry = new THREE.CircleGeometry(10, 32);
+        const material = new THREE.MeshBasicMaterial({
+            color: 0x2196F3,
+            side: THREE.DoubleSide
+        });
+        const circle = new THREE.Mesh(geometry, material);
+        circle.position.set(threePos.x, threePos.y, 2);
+        this.estimatedGroup.add(circle);
 
-        // Error vector
-        this.ctx.beginPath();
-        this.ctx.moveTo(this.device.x, this.device.y);
-        this.ctx.lineTo(x, y);
-        this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
-        this.ctx.lineWidth = 2;
-        this.ctx.setLineDash([5, 5]);
-        this.ctx.stroke();
-        this.ctx.setLineDash([]);
+        // Border
+        const borderGeometry = new THREE.RingGeometry(9.5, 11.5, 32);
+        const borderMaterial = new THREE.MeshBasicMaterial({
+            color: 0x1565C0,
+            side: THREE.DoubleSide
+        });
+        const border = new THREE.Mesh(borderGeometry, borderMaterial);
+        border.position.set(threePos.x, threePos.y, 2.1);
+        this.estimatedGroup.add(border);
 
-        // Error magnitude
-        const errorMeters = this.calculateTrueDistance(this.device.x, this.device.y, x, y);
-        const midX = (this.device.x + x) / 2;
-        const midY = (this.device.y + y) / 2;
+        // Error line
+        const devicePos = this.canvasToThree(this.device.x, this.device.y);
+        const lineMaterial = new THREE.LineDashedMaterial({
+            color: 0xff0000,
+            transparent: true,
+            opacity: 0.5,
+            dashSize: 5,
+            gapSize: 5
+        });
 
-        this.ctx.fillStyle = '#F44336';
-        this.ctx.font = 'bold 11px sans-serif';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(`Error: ${errorMeters.toFixed(2)}m`, midX, midY - 5);
+        const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(devicePos.x, devicePos.y, 2.5),
+            new THREE.Vector3(threePos.x, threePos.y, 2.5)
+        ]);
+        const line = new THREE.Line(lineGeometry, lineMaterial);
+        line.computeLineDistances();
+        this.estimatedGroup.add(line);
     }
 
     // =========================================================================
@@ -581,7 +690,6 @@ class TrilaterationSimulator {
                     <td>${data.trueDistance.toFixed(2)}</td>
                 </tr>`;
             } else {
-                // Radio is out of range
                 const trueDistance = this.calculateTrueDistance(
                     radio.x, radio.y, this.device.x, this.device.y
                 );
@@ -663,28 +771,30 @@ class TrilaterationSimulator {
 
     handleMouseDown(e) {
         const rect = this.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        this.mouse.x = ((e.clientX - rect.left) / this.width) * 2 - 1;
+        this.mouse.y = -((e.clientY - rect.top) / this.height) * 2 + 1;
 
-        // Check if clicking on device
-        if (this.isPointInCircle(x, y, this.device.x, this.device.y, this.device.radius)) {
-            this.dragging = this.device;
-            this.dragOffset = {
-                x: this.device.x - x,
-                y: this.device.y - y
-            };
-            return;
-        }
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObjects(this.interactiveObjects);
 
-        // Check if clicking on any radio
-        for (const radio of this.radios) {
-            if (this.isPointInCircle(x, y, radio.x, radio.y, radio.radius)) {
-                this.dragging = radio;
+        if (intersects.length > 0) {
+            const obj = intersects[0].object;
+            if (obj.userData.type === 'device') {
+                this.dragging = obj.userData.device;
+                const canvasX = (e.clientX - rect.left);
+                const canvasY = (e.clientY - rect.top);
                 this.dragOffset = {
-                    x: radio.x - x,
-                    y: radio.y - y
+                    x: this.dragging.x - canvasX,
+                    y: this.dragging.y - canvasY
                 };
-                return;
+            } else if (obj.userData.type === 'radio') {
+                this.dragging = obj.userData.radio;
+                const canvasX = (e.clientX - rect.left);
+                const canvasY = (e.clientY - rect.top);
+                this.dragOffset = {
+                    x: this.dragging.x - canvasX,
+                    y: this.dragging.y - canvasY
+                };
             }
         }
     }
@@ -700,29 +810,12 @@ class TrilaterationSimulator {
         this.dragging.y = y + this.dragOffset.y;
 
         // Keep within bounds
-        this.dragging.x = Math.max(20, Math.min(this.canvas.width - 20, this.dragging.x));
-        this.dragging.y = Math.max(20, Math.min(this.canvas.height - 20, this.dragging.y));
+        this.dragging.x = Math.max(20, Math.min(this.width - 20, this.dragging.x));
+        this.dragging.y = Math.max(20, Math.min(this.height - 20, this.dragging.y));
     }
 
     handleMouseUp() {
         this.dragging = null;
-    }
-
-    isPointInCircle(px, py, cx, cy, radius) {
-        const dx = px - cx;
-        const dy = py - cy;
-        return dx * dx + dy * dy <= radius * radius;
-    }
-
-    // =========================================================================
-    // Utility Functions
-    // =========================================================================
-
-    hexToRGBA(hex, alpha) {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 }
 

@@ -1,6 +1,6 @@
 // =============================================================================
 // Bluetooth Trilateration Simulator - RSSI Edition with Three.js
-// Version 1.2
+// Version 1.3 - Non-Linear Least Squares Optimization
 // =============================================================================
 
 class TrilaterationSimulator {
@@ -338,11 +338,12 @@ class TrilaterationSimulator {
     }
 
     // =========================================================================
-    // Trilateration Algorithm
+    // Trilateration Algorithm - Non-Linear Least Squares
     // =========================================================================
 
     /**
      * Perform trilateration using estimated distances from RSSI
+     * Uses non-linear least squares optimization to minimize error across all radios
      */
     performTrilateration() {
         // Calculate RSSI and estimated distances for all radios
@@ -373,10 +374,126 @@ class TrilaterationSimulator {
             return measurements;
         }
 
-        // Use first 3 measurements for trilateration
-        const [m1, m2, m3] = measurements.slice(0, 3);
+        // Use least-squares optimization with all measurements
+        this.estimatedPosition = this.leastSquaresTrilateration(measurements);
 
-        // Convert estimated distances back to pixels
+        if (this.estimatedPosition) {
+            this.hideStatusMessage();
+        } else {
+            this.showStatusMessage('Trilateration failed - unable to find solution', 'warning');
+        }
+
+        return measurements;
+    }
+
+    /**
+     * Non-linear least squares trilateration using all available measurements
+     * Minimizes: sum of (measured_distance - actual_distance)^2
+     */
+    leastSquaresTrilateration(measurements) {
+        // Initial guess: weighted centroid of radio positions
+        let initialX = 0;
+        let initialY = 0;
+        let totalWeight = 0;
+
+        for (const m of measurements) {
+            // Weight by RSSI strength (stronger signals get more weight)
+            const weight = Math.pow(10, (m.rssi + 100) / 20);
+            initialX += m.radio.x * weight;
+            initialY += m.radio.y * weight;
+            totalWeight += weight;
+        }
+
+        initialX /= totalWeight;
+        initialY /= totalWeight;
+
+        // If we have exactly 3 measurements and they're not collinear,
+        // use geometric solution as initial guess
+        if (measurements.length === 3) {
+            const geometricSolution = this.geometricTrilateration(measurements);
+            if (geometricSolution) {
+                initialX = geometricSolution.x;
+                initialY = geometricSolution.y;
+            }
+        }
+
+        // Gauss-Newton optimization
+        let x = initialX;
+        let y = initialY;
+        const maxIterations = 100;
+        const convergenceThreshold = 0.01; // pixels
+
+        for (let iter = 0; iter < maxIterations; iter++) {
+            let sumJtJ_xx = 0, sumJtJ_yy = 0, sumJtJ_xy = 0;
+            let sumJtr_x = 0, sumJtr_y = 0;
+
+            // Build normal equations: J^T * J * delta = J^T * r
+            for (const m of measurements) {
+                const dx = x - m.radio.x;
+                const dy = y - m.radio.y;
+                const predictedDist = Math.sqrt(dx * dx + dy * dy);
+
+                // Avoid division by zero
+                if (predictedDist < 0.1) continue;
+
+                const measuredDist = m.estimatedDistance * this.scale; // Convert to pixels
+                const residual = predictedDist - measuredDist;
+
+                // Jacobian: d(distance)/d(x) and d(distance)/d(y)
+                const J_x = dx / predictedDist;
+                const J_y = dy / predictedDist;
+
+                // Accumulate J^T * J
+                sumJtJ_xx += J_x * J_x;
+                sumJtJ_yy += J_y * J_y;
+                sumJtJ_xy += J_x * J_y;
+
+                // Accumulate J^T * r
+                sumJtr_x += J_x * residual;
+                sumJtr_y += J_y * residual;
+            }
+
+            // Solve 2x2 system: [sumJtJ_xx, sumJtJ_xy] [delta_x] = -[sumJtr_x]
+            //                   [sumJtJ_xy, sumJtJ_yy] [delta_y]    [sumJtr_y]
+            const det = sumJtJ_xx * sumJtJ_yy - sumJtJ_xy * sumJtJ_xy;
+
+            if (Math.abs(det) < 1e-10) {
+                // Matrix is singular, can't continue
+                break;
+            }
+
+            const delta_x = -(sumJtJ_yy * sumJtr_x - sumJtJ_xy * sumJtr_y) / det;
+            const delta_y = -(sumJtJ_xx * sumJtr_y - sumJtJ_xy * sumJtr_x) / det;
+
+            // Update position
+            x += delta_x;
+            y += delta_y;
+
+            // Check convergence
+            const deltaLength = Math.sqrt(delta_x * delta_x + delta_y * delta_y);
+            if (deltaLength < convergenceThreshold) {
+                break;
+            }
+        }
+
+        // Validate result is within reasonable bounds
+        if (x < -100 || x > this.width + 100 || y < -100 || y > this.height + 100) {
+            return null;
+        }
+
+        return { x, y };
+    }
+
+    /**
+     * Geometric trilateration for exactly 3 measurements (closed-form solution)
+     * Used as initial guess for least-squares optimization
+     */
+    geometricTrilateration(measurements) {
+        if (measurements.length !== 3) return null;
+
+        const [m1, m2, m3] = measurements;
+
+        // Convert estimated distances to pixels
         const r1 = m1.estimatedDistance * this.scale;
         const r2 = m2.estimatedDistance * this.scale;
         const r3 = m3.estimatedDistance * this.scale;
@@ -397,19 +514,14 @@ class TrilaterationSimulator {
         const denominator = (A * E - B * D);
 
         if (Math.abs(denominator) < 0.001) {
-            // Radios are collinear - can't trilaterate
-            this.estimatedPosition = null;
-            this.showStatusMessage('Radios are collinear - cannot trilaterate', 'warning');
-            return measurements;
+            // Radios are collinear
+            return null;
         }
 
         const x = (C * E - F * B) / denominator;
         const y = (A * F - D * C) / denominator;
 
-        this.estimatedPosition = { x, y };
-        this.hideStatusMessage();
-
-        return measurements;
+        return { x, y };
     }
 
     // =========================================================================

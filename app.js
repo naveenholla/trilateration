@@ -1,7 +1,243 @@
 // =============================================================================
 // Bluetooth Trilateration Simulator - RSSI Edition with Three.js
-// Version 1.3 - Non-Linear Least Squares Optimization
+// Version 1.4 - Wall Attenuation & Floor Map Integration
 // =============================================================================
+
+// =============================================================================
+// Wall Materials & Constants
+// =============================================================================
+
+/**
+ * Material properties for different wall types
+ * Attenuation values in dB (typical indoor RF loss at 2.4GHz)
+ */
+const WALL_MATERIALS = {
+    drywall: {
+        attenuation: 3,      // ~3 dB loss through standard drywall
+        color: 0xcccccc,
+        name: 'Drywall'
+    },
+    concrete: {
+        attenuation: 10,     // ~10 dB loss through concrete
+        color: 0x888888,
+        name: 'Concrete'
+    },
+    brick: {
+        attenuation: 8,      // ~8 dB loss through brick
+        color: 0xaa6644,
+        name: 'Brick'
+    },
+    glass: {
+        attenuation: 2,      // ~2 dB loss through glass
+        color: 0x8888ff,
+        name: 'Glass'
+    },
+    metal: {
+        attenuation: 20,     // ~20 dB loss through metal (heavy attenuation)
+        color: 0x666666,
+        name: 'Metal'
+    },
+    door_wood: {
+        attenuation: 4,      // ~4 dB loss through wooden door
+        color: 0x996633,
+        name: 'Wood Door'
+    },
+    door_metal: {
+        attenuation: 12,     // ~12 dB loss through metal door
+        color: 0x555555,
+        name: 'Metal Door'
+    }
+};
+
+/**
+ * Wall class representing a physical obstacle
+ */
+class Wall {
+    constructor(start, end, material = 'drywall') {
+        this.id = this.generateId();
+        this.start = { x: start.x, y: start.y };  // Canvas coordinates
+        this.end = { x: end.x, y: end.y };
+        this.material = material;
+        this.thickness = 0.15;  // meters (default 15cm)
+
+        // Get material properties
+        const matProps = WALL_MATERIALS[material] || WALL_MATERIALS.drywall;
+        this.attenuation = matProps.attenuation;
+        this.color = matProps.color;
+        this.name = matProps.name;
+
+        // Three.js mesh (will be created during rendering)
+        this.mesh = null;
+    }
+
+    generateId() {
+        return 'wall_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
+
+    /**
+     * Calculate length of wall in pixels
+     */
+    getLength() {
+        const dx = this.end.x - this.start.x;
+        const dy = this.end.y - this.start.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    /**
+     * Get midpoint of wall
+     */
+    getMidpoint() {
+        return {
+            x: (this.start.x + this.end.x) / 2,
+            y: (this.start.y + this.end.y) / 2
+        };
+    }
+
+    /**
+     * Check if a point is near this wall (for selection/hover)
+     */
+    containsPoint(point, threshold = 10) {
+        const dist = this.distanceToPoint(point);
+        return dist <= threshold;
+    }
+
+    /**
+     * Calculate distance from point to line segment
+     */
+    distanceToPoint(point) {
+        const A = point.x - this.start.x;
+        const B = point.y - this.start.y;
+        const C = this.end.x - this.start.x;
+        const D = this.end.y - this.start.y;
+
+        const dot = A * C + B * D;
+        const lenSq = C * C + D * D;
+
+        let param = -1;
+        if (lenSq !== 0) {
+            param = dot / lenSq;
+        }
+
+        let xx, yy;
+
+        if (param < 0) {
+            xx = this.start.x;
+            yy = this.start.y;
+        } else if (param > 1) {
+            xx = this.end.x;
+            yy = this.end.y;
+        } else {
+            xx = this.start.x + param * C;
+            yy = this.start.y + param * D;
+        }
+
+        const dx = point.x - xx;
+        const dy = point.y - yy;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+}
+
+/**
+ * Line-Line Intersection Algorithm
+ * Returns intersection point if lines intersect, null otherwise
+ */
+function lineLineIntersection(p1, p2, p3, p4) {
+    const x1 = p1.x, y1 = p1.y;
+    const x2 = p2.x, y2 = p2.y;
+    const x3 = p3.x, y3 = p3.y;
+    const x4 = p4.x, y4 = p4.y;
+
+    // Calculate denominators
+    const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+
+    // Lines are parallel if denominator is zero
+    if (Math.abs(denom) < 1e-10) {
+        return null;
+    }
+
+    // Calculate intersection parameters
+    const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+    const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+
+    // Check if intersection is within both line segments
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+        return {
+            x: x1 + t * (x2 - x1),
+            y: y1 + t * (y2 - y1),
+            t: t,  // Parameter along first line (0 to 1)
+            u: u   // Parameter along second line (0 to 1)
+        };
+    }
+
+    return null;
+}
+
+/**
+ * Find all wall intersections along a signal path
+ */
+function findWallIntersections(transmitter, receiver, walls) {
+    const intersections = [];
+
+    for (const wall of walls) {
+        const intersection = lineLineIntersection(
+            transmitter,
+            receiver,
+            wall.start,
+            wall.end
+        );
+
+        if (intersection) {
+            // Calculate distance from transmitter to intersection
+            const dx = intersection.x - transmitter.x;
+            const dy = intersection.y - transmitter.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            intersections.push({
+                wall: wall,
+                point: { x: intersection.x, y: intersection.y },
+                distance: distance,
+                t: intersection.t
+            });
+        }
+    }
+
+    // Sort by distance from transmitter (nearest first)
+    intersections.sort((a, b) => a.distance - b.distance);
+
+    return intersections;
+}
+
+/**
+ * Calculate penetration angle factor
+ * Signal loss increases when hitting walls at shallow angles
+ */
+function calculatePenetrationAngle(signalDirection, wall) {
+    // Calculate wall normal vector
+    const wallDx = wall.end.x - wall.start.x;
+    const wallDy = wall.end.y - wall.start.y;
+    const wallLength = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
+
+    // Wall tangent (normalized)
+    const wallTangentX = wallDx / wallLength;
+    const wallTangentY = wallDy / wallLength;
+
+    // Wall normal (perpendicular to tangent)
+    const wallNormalX = -wallTangentY;
+    const wallNormalY = wallTangentX;
+
+    // Signal direction (normalized)
+    const sigLength = Math.sqrt(signalDirection.x ** 2 + signalDirection.y ** 2);
+    const sigDirX = signalDirection.x / sigLength;
+    const sigDirY = signalDirection.y / sigLength;
+
+    // Dot product gives cosine of angle
+    const dotProduct = Math.abs(sigDirX * wallNormalX + sigDirY * wallNormalY);
+
+    // Map from [0, 1] to [0.5, 1.0]
+    // 0 = parallel (grazing) -> 0.5 factor
+    // 1 = perpendicular -> 1.0 factor
+    return 0.5 + 0.5 * dotProduct;
+}
 
 class TrilaterationSimulator {
     constructor() {
@@ -38,18 +274,24 @@ class TrilaterationSimulator {
         this.mouse = new THREE.Vector2();
 
         // Groups for organizing objects
+        this.floorPlanGroup = new THREE.Group();
         this.gridGroup = new THREE.Group();
         this.heatmapGroup = new THREE.Group();
         this.circlesGroup = new THREE.Group();
         this.debugLinesGroup = new THREE.Group();
+        this.wallsGroup = new THREE.Group();
+        this.wallIntersectionsGroup = new THREE.Group();
         this.radiosGroup = new THREE.Group();
         this.deviceGroup = new THREE.Group();
         this.estimatedGroup = new THREE.Group();
 
+        this.scene.add(this.floorPlanGroup);
         this.scene.add(this.gridGroup);
         this.scene.add(this.heatmapGroup);
         this.scene.add(this.circlesGroup);
         this.scene.add(this.debugLinesGroup);
+        this.scene.add(this.wallsGroup);
+        this.scene.add(this.wallIntersectionsGroup);
         this.scene.add(this.radiosGroup);
         this.scene.add(this.deviceGroup);
         this.scene.add(this.estimatedGroup);
@@ -67,6 +309,22 @@ class TrilaterationSimulator {
         this.showDebugLines = false;
         this.enableHeatmap = false;
 
+        // Wall options
+        this.enableWalls = false;
+        this.enableAngleEffect = true;
+        this.enableCumulativeEffect = true;
+        this.showWallIntersections = false;
+
+        // Floor plan image
+        this.floorPlan = {
+            image: null,
+            texture: null,
+            mesh: null,
+            scale: 40,  // pixels per meter (matches grid)
+            opacity: 0.5,
+            show: false
+        };
+
         // Scale factor (pixels per meter)
         this.scale = 40; // 40 pixels = 1 meter
 
@@ -77,6 +335,10 @@ class TrilaterationSimulator {
         // Radios (transmitters)
         this.radios = [];
         this.numRadios = 4;
+
+        // Walls (obstacles)
+        this.walls = [];
+        this.initializeWalls();
 
         // Device (receiver) - stored in canvas coordinates
         this.device = {
@@ -92,6 +354,12 @@ class TrilaterationSimulator {
         this.dragging = null;
         this.dragOffset = { x: 0, y: 0 };
         this.interactiveObjects = [];
+
+        // Wall editing state
+        this.drawWallMode = false;
+        this.selectedWallMaterial = 'drywall';
+        this.tempWall = null;
+        this.selectedWall = null;
 
         this.init();
     }
@@ -174,6 +442,29 @@ class TrilaterationSimulator {
         }
     }
 
+    initializeWalls() {
+        this.walls = [];
+
+        // Demo walls - create a simple room layout
+        const cx = this.width / 2;
+        const cy = this.height / 2;
+        const offset = 150;
+
+        // Vertical wall dividing the space
+        this.walls.push(new Wall(
+            { x: cx, y: cy - offset },
+            { x: cx, y: cy + offset },
+            'drywall'
+        ));
+
+        // Horizontal wall segment (concrete)
+        this.walls.push(new Wall(
+            { x: cx - offset, y: cy - 80 },
+            { x: cx - 50, y: cy - 80 },
+            'concrete'
+        ));
+    }
+
     createGrid() {
         // Clear existing grid
         this.gridGroup.clear();
@@ -211,6 +502,21 @@ class TrilaterationSimulator {
         this.canvas.addEventListener('mouseup', () => this.handleMouseUp());
         this.canvas.addEventListener('mouseleave', () => this.handleMouseUp());
 
+        // Keyboard events
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                this.deleteSelectedWall();
+            } else if (e.key === 'Escape') {
+                this.drawWallMode = false;
+                this.tempWall = null;
+                this.selectedWall = null;
+                const btn = document.getElementById('drawWallBtn');
+                btn.textContent = '🖊️ Draw Wall Mode (OFF)';
+                btn.style.backgroundColor = '';
+                this.canvas.style.cursor = 'default';
+            }
+        });
+
         // Controls
         document.getElementById('txPower').addEventListener('input', (e) => {
             this.txPower = parseFloat(e.target.value);
@@ -244,6 +550,73 @@ class TrilaterationSimulator {
 
         document.getElementById('enableHeatmap').addEventListener('change', (e) => {
             this.enableHeatmap = e.target.checked;
+        });
+
+        // Floor plan controls
+        document.getElementById('floorPlanUpload').addEventListener('change', (e) => {
+            this.handleFloorPlanUpload(e);
+        });
+
+        document.getElementById('showFloorPlan').addEventListener('change', (e) => {
+            this.floorPlan.show = e.target.checked;
+            this.updateFloorPlan();
+        });
+
+        document.getElementById('floorPlanOpacity').addEventListener('input', (e) => {
+            this.floorPlan.opacity = parseFloat(e.target.value);
+            document.querySelector('#floorPlanOpacity + .value-display').textContent = e.target.value;
+            this.updateFloorPlan();
+        });
+
+        document.getElementById('floorPlanScale').addEventListener('input', (e) => {
+            this.floorPlan.scale = parseFloat(e.target.value);
+            document.querySelector('#floorPlanScale + .value-display').textContent = e.target.value;
+            this.updateFloorPlan();
+        });
+
+        document.getElementById('clearFloorPlanBtn').addEventListener('click', () => {
+            this.clearFloorPlan();
+        });
+
+        document.getElementById('enableWalls').addEventListener('change', (e) => {
+            this.enableWalls = e.target.checked;
+        });
+
+        document.getElementById('showWallIntersections').addEventListener('change', (e) => {
+            this.showWallIntersections = e.target.checked;
+        });
+
+        document.getElementById('enableAngleEffect').addEventListener('change', (e) => {
+            this.enableAngleEffect = e.target.checked;
+        });
+
+        document.getElementById('enableCumulativeEffect').addEventListener('change', (e) => {
+            this.enableCumulativeEffect = e.target.checked;
+        });
+
+        // Wall editor controls
+        document.getElementById('drawWallBtn').addEventListener('click', () => {
+            this.drawWallMode = !this.drawWallMode;
+            const btn = document.getElementById('drawWallBtn');
+            btn.textContent = this.drawWallMode ? '🖊️ Draw Wall Mode (ON)' : '🖊️ Draw Wall Mode (OFF)';
+            btn.style.backgroundColor = this.drawWallMode ? '#4CAF50' : '';
+            this.canvas.style.cursor = this.drawWallMode ? 'crosshair' : 'default';
+        });
+
+        document.getElementById('wallMaterial').addEventListener('change', (e) => {
+            this.selectedWallMaterial = e.target.value;
+        });
+
+        document.getElementById('deleteWallBtn').addEventListener('click', () => {
+            this.deleteSelectedWall();
+        });
+
+        document.getElementById('clearAllWallsBtn').addEventListener('click', () => {
+            if (confirm('Delete all walls?')) {
+                this.walls = [];
+                this.initializeWalls(); // Re-add demo walls
+                this.updateWallCount();
+            }
         });
 
         document.getElementById('numRadios').addEventListener('change', (e) => {
@@ -283,12 +656,46 @@ class TrilaterationSimulator {
 
     /**
      * Calculate expected RSSI based on distance using path-loss model
-     * RSSI = TxPower - 10 * n * log10(d)
+     * RSSI = TxPower - 10 * n * log10(d) - WallAttenuation
+     * @param {Number} distanceMeters - Distance in meters
+     * @param {Object} transmitter - Transmitter position {x, y} (optional, for wall calculation)
+     * @param {Object} receiver - Receiver position {x, y} (optional, for wall calculation)
      */
-    calculateRSSI(distanceMeters) {
+    calculateRSSI(distanceMeters, transmitter = null, receiver = null) {
         if (distanceMeters < 0.1) distanceMeters = 0.1; // Avoid log(0)
 
         let rssi = this.txPower - 10 * this.pathLossExponent * Math.log10(distanceMeters);
+
+        // Apply wall attenuation if enabled and positions provided
+        if (this.enableWalls && transmitter && receiver && this.walls.length > 0) {
+            const intersections = findWallIntersections(transmitter, receiver, this.walls);
+
+            let totalAttenuation = 0;
+            let cumulativeFactor = 1.0;
+
+            for (let i = 0; i < intersections.length; i++) {
+                const intersection = intersections[i];
+                let wallLoss = intersection.wall.attenuation;
+
+                // Apply penetration angle effect if enabled
+                if (this.enableAngleEffect) {
+                    const dx = receiver.x - transmitter.x;
+                    const dy = receiver.y - transmitter.y;
+                    const signalDir = { x: dx, y: dy };
+                    const angleFactor = calculatePenetrationAngle(signalDir, intersection.wall);
+                    wallLoss *= angleFactor;
+                }
+
+                // Apply cumulative effect if enabled (each wall increases loss slightly)
+                if (this.enableCumulativeEffect && i > 0) {
+                    cumulativeFactor *= 1.1;
+                }
+
+                totalAttenuation += wallLoss * cumulativeFactor;
+            }
+
+            rssi -= totalAttenuation;
+        }
 
         // Add Gaussian noise if enabled
         if (this.enableNoise) {
@@ -353,16 +760,26 @@ class TrilaterationSimulator {
             const trueDistance = this.calculateTrueDistance(
                 radio.x, radio.y, this.device.x, this.device.y
             );
-            const rssi = this.calculateRSSI(trueDistance);
+
+            // Calculate RSSI with wall attenuation if enabled
+            const transmitter = { x: radio.x, y: radio.y };
+            const receiver = { x: this.device.x, y: this.device.y };
+            const rssi = this.calculateRSSI(trueDistance, transmitter, receiver);
 
             // Only include measurements above minimum threshold
             if (rssi >= this.minRSSI) {
                 const estimatedDistance = this.estimateDistanceFromRSSI(rssi);
+
+                // Find wall intersections for this radio
+                const intersections = this.enableWalls ?
+                    findWallIntersections(transmitter, receiver, this.walls) : [];
+
                 measurements.push({
                     radio: radio,
                     rssi: rssi,
                     trueDistance: trueDistance,
-                    estimatedDistance: estimatedDistance
+                    estimatedDistance: estimatedDistance,
+                    wallIntersections: intersections
                 });
             }
         }
@@ -541,6 +958,8 @@ class TrilaterationSimulator {
         this.updateHeatmap();
         this.updateRangingCircles(measurements);
         this.updateDebugLines();
+        this.updateWalls();
+        this.updateWallIntersections(measurements);
         this.updateRadios();
         this.updateDevice();
         this.updateEstimatedPosition();
@@ -566,7 +985,9 @@ class TrilaterationSimulator {
 
                 for (const radio of this.radios) {
                     const distance = this.calculateTrueDistance(radio.x, radio.y, x, y);
-                    const rssi = this.calculateRSSI(distance);
+                    const transmitter = { x: radio.x, y: radio.y };
+                    const receiver = { x: x, y: y };
+                    const rssi = this.calculateRSSI(distance, transmitter, receiver);
                     maxRSSI = Math.max(maxRSSI, rssi);
                 }
 
@@ -651,6 +1072,214 @@ class TrilaterationSimulator {
             const line = new THREE.Line(geometry, material);
             this.debugLinesGroup.add(line);
         }
+    }
+
+    updateWalls() {
+        this.wallsGroup.clear();
+
+        // Render permanent walls
+        const wallsToRender = this.enableWalls ? this.walls : [];
+
+        for (const wall of wallsToRender) {
+            const isSelected = wall === this.selectedWall;
+            this.renderWall(wall, isSelected);
+        }
+
+        // Render temporary wall being drawn
+        if (this.tempWall) {
+            this.renderWall(this.tempWall, false, true);
+        }
+    }
+
+    renderWall(wall, isSelected = false, isTemp = false) {
+        const startPos = this.canvasToThree(wall.start.x, wall.start.y);
+        const endPos = this.canvasToThree(wall.end.x, wall.end.y);
+
+        // Wall line
+        const material = new THREE.LineBasicMaterial({
+            color: isSelected ? 0xffff00 : wall.color,
+            linewidth: isSelected ? 5 : 3,
+            transparent: true,
+            opacity: isTemp ? 0.5 : 0.8
+        });
+
+        const geometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(startPos.x, startPos.y, 2),
+            new THREE.Vector3(endPos.x, endPos.y, 2)
+        ]);
+
+        const line = new THREE.Line(geometry, material);
+        this.wallsGroup.add(line);
+
+        // Add thicker background line for better visibility
+        const bgMaterial = new THREE.LineBasicMaterial({
+            color: isSelected ? 0xffaa00 : 0x000000,
+            linewidth: isSelected ? 7 : 5,
+            transparent: true,
+            opacity: 0.2
+        });
+
+        const bgGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(startPos.x, startPos.y, 1.9),
+            new THREE.Vector3(endPos.x, endPos.y, 1.9)
+        ]);
+
+        const bgLine = new THREE.Line(bgGeometry, bgMaterial);
+        this.wallsGroup.add(bgLine);
+
+        // Draw endpoints for selected wall
+        if (isSelected) {
+            const endpointGeometry = new THREE.CircleGeometry(6, 16);
+            const endpointMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffff00,
+                side: THREE.DoubleSide
+            });
+
+            const startCircle = new THREE.Mesh(endpointGeometry, endpointMaterial);
+            startCircle.position.set(startPos.x, startPos.y, 2.5);
+            this.wallsGroup.add(startCircle);
+
+            const endCircle = new THREE.Mesh(endpointGeometry, endpointMaterial);
+            endCircle.position.set(endPos.x, endPos.y, 2.5);
+            this.wallsGroup.add(endCircle);
+        }
+    }
+
+    deleteSelectedWall() {
+        if (!this.selectedWall) return;
+
+        const index = this.walls.indexOf(this.selectedWall);
+        if (index > -1) {
+            this.walls.splice(index, 1);
+            this.selectedWall = null;
+            this.updateWallCount();
+        }
+    }
+
+    updateWallCount() {
+        const countEl = document.getElementById('wallCount');
+        if (countEl) {
+            countEl.textContent = this.walls.length;
+        }
+    }
+
+    updateWallIntersections(measurements) {
+        this.wallIntersectionsGroup.clear();
+
+        if (!this.enableWalls || !this.showWallIntersections) return;
+
+        for (const m of measurements) {
+            if (!m.wallIntersections || m.wallIntersections.length === 0) continue;
+
+            for (const intersection of m.wallIntersections) {
+                const pos = this.canvasToThree(intersection.point.x, intersection.point.y);
+
+                // Draw intersection point as red circle
+                const geometry = new THREE.CircleGeometry(5, 16);
+                const material = new THREE.MeshBasicMaterial({
+                    color: 0xff0000,
+                    side: THREE.DoubleSide
+                });
+
+                const circle = new THREE.Mesh(geometry, material);
+                circle.position.set(pos.x, pos.y, 3.5);
+                this.wallIntersectionsGroup.add(circle);
+
+                // Add border
+                const borderGeometry = new THREE.RingGeometry(4.5, 6, 16);
+                const borderMaterial = new THREE.MeshBasicMaterial({
+                    color: 0x880000,
+                    side: THREE.DoubleSide
+                });
+                const border = new THREE.Mesh(borderGeometry, borderMaterial);
+                border.position.set(pos.x, pos.y, 3.6);
+                this.wallIntersectionsGroup.add(border);
+            }
+        }
+    }
+
+    // =========================================================================
+    // Floor Plan Image Handling
+    // =========================================================================
+
+    handleFloorPlanUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+            alert('Please select a valid image file');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                this.floorPlan.image = img;
+                this.loadFloorPlanTexture(img);
+
+                // Update UI
+                const info = document.getElementById('floorPlanInfo');
+                info.textContent = `${file.name} (${img.width}×${img.height}px)`;
+
+                // Auto-enable display
+                document.getElementById('showFloorPlan').checked = true;
+                this.floorPlan.show = true;
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    loadFloorPlanTexture(img) {
+        // Create texture from image
+        const texture = new THREE.Texture(img);
+        texture.needsUpdate = true;
+        this.floorPlan.texture = texture;
+
+        // Update the display
+        this.updateFloorPlan();
+    }
+
+    updateFloorPlan() {
+        // Clear existing floor plan
+        this.floorPlanGroup.clear();
+
+        if (!this.floorPlan.show || !this.floorPlan.texture) return;
+
+        // Create plane geometry matching canvas size
+        const geometry = new THREE.PlaneGeometry(this.width, this.height);
+
+        // Create material with texture
+        const material = new THREE.MeshBasicMaterial({
+            map: this.floorPlan.texture,
+            transparent: true,
+            opacity: this.floorPlan.opacity,
+            side: THREE.DoubleSide
+        });
+
+        // Create mesh
+        this.floorPlan.mesh = new THREE.Mesh(geometry, material);
+
+        // Position at origin (covers entire canvas)
+        this.floorPlan.mesh.position.set(0, 0, -2);
+
+        this.floorPlanGroup.add(this.floorPlan.mesh);
+    }
+
+    clearFloorPlan() {
+        this.floorPlan.image = null;
+        this.floorPlan.texture = null;
+        this.floorPlan.mesh = null;
+        this.floorPlan.show = false;
+
+        this.floorPlanGroup.clear();
+
+        // Reset UI
+        document.getElementById('floorPlanUpload').value = '';
+        document.getElementById('showFloorPlan').checked = false;
+        document.getElementById('floorPlanInfo').textContent = '';
     }
 
     updateRadios() {
@@ -883,6 +1512,29 @@ class TrilaterationSimulator {
 
     handleMouseDown(e) {
         const rect = this.canvas.getBoundingClientRect();
+        const canvasX = e.clientX - rect.left;
+        const canvasY = e.clientY - rect.top;
+
+        // Wall drawing mode
+        if (this.drawWallMode) {
+            this.tempWall = new Wall(
+                { x: canvasX, y: canvasY },
+                { x: canvasX, y: canvasY },
+                this.selectedWallMaterial
+            );
+            return;
+        }
+
+        // Check if clicking on a wall first
+        this.selectedWall = null;
+        for (const wall of this.walls) {
+            if (wall.containsPoint({ x: canvasX, y: canvasY }, 15)) {
+                this.selectedWall = wall;
+                return;
+            }
+        }
+
+        // Then check for radio/device dragging
         this.mouse.x = ((e.clientX - rect.left) / this.width) * 2 - 1;
         this.mouse.y = -((e.clientY - rect.top) / this.height) * 2 + 1;
 
@@ -893,16 +1545,12 @@ class TrilaterationSimulator {
             const obj = intersects[0].object;
             if (obj.userData.type === 'device') {
                 this.dragging = obj.userData.device;
-                const canvasX = (e.clientX - rect.left);
-                const canvasY = (e.clientY - rect.top);
                 this.dragOffset = {
                     x: this.dragging.x - canvasX,
                     y: this.dragging.y - canvasY
                 };
             } else if (obj.userData.type === 'radio') {
                 this.dragging = obj.userData.radio;
-                const canvasX = (e.clientX - rect.left);
-                const canvasY = (e.clientY - rect.top);
                 this.dragOffset = {
                     x: this.dragging.x - canvasX,
                     y: this.dragging.y - canvasY
@@ -912,21 +1560,39 @@ class TrilaterationSimulator {
     }
 
     handleMouseMove(e) {
-        if (!this.dragging) return;
-
         const rect = this.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const canvasX = e.clientX - rect.left;
+        const canvasY = e.clientY - rect.top;
 
-        this.dragging.x = x + this.dragOffset.x;
-        this.dragging.y = y + this.dragOffset.y;
+        // Update temporary wall endpoint while drawing
+        if (this.tempWall) {
+            this.tempWall.end.x = canvasX;
+            this.tempWall.end.y = canvasY;
+            return;
+        }
 
-        // Keep within bounds
-        this.dragging.x = Math.max(20, Math.min(this.width - 20, this.dragging.x));
-        this.dragging.y = Math.max(20, Math.min(this.height - 20, this.dragging.y));
+        // Drag radio or device
+        if (this.dragging) {
+            this.dragging.x = canvasX + this.dragOffset.x;
+            this.dragging.y = canvasY + this.dragOffset.y;
+
+            // Keep within bounds
+            this.dragging.x = Math.max(20, Math.min(this.width - 20, this.dragging.x));
+            this.dragging.y = Math.max(20, Math.min(this.height - 20, this.dragging.y));
+        }
     }
 
     handleMouseUp() {
+        // Finalize wall drawing
+        if (this.tempWall) {
+            // Only add if wall has minimum length
+            if (this.tempWall.getLength() > 10) {
+                this.walls.push(this.tempWall);
+                this.updateWallCount();
+            }
+            this.tempWall = null;
+        }
+
         this.dragging = null;
     }
 }

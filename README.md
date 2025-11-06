@@ -1,13 +1,16 @@
 # Bluetooth Trilateration Simulator - RSSI Edition
 
-**Version 1.1** - An interactive web-based simulator for understanding Bluetooth Low Energy (BLE) trilateration with realistic RSSI-to-distance conversion.
+**Version 1.2** - An interactive web-based simulator for understanding Bluetooth Low Energy (BLE) trilateration with realistic RSSI-to-distance conversion, powered by Three.js.
 
-![Version](https://img.shields.io/badge/version-1.1-blue)
+![Version](https://img.shields.io/badge/version-1.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+![Powered by](https://img.shields.io/badge/powered%20by-Three.js-black)
 
 ## Overview
 
 This web application simulates realistic Bluetooth Low Energy (BLE) indoor positioning using RSSI (Received Signal Strength Indicator) measurements and trilateration algorithms. Unlike idealized geometric simulations, this tool uses the **log-distance path loss model** to convert signal strength into distance estimates, demonstrating real-world ranging errors and environmental effects.
+
+**New in v1.2**: Enhanced rendering with Three.js WebGL for improved visual quality, better anti-aliasing, and hardware-accelerated graphics.
 
 ### Key Features
 
@@ -153,15 +156,20 @@ trilateration/
 
 ### Browser Requirements
 
-- Modern browser with HTML5 Canvas support
+- Modern browser with WebGL support (for Three.js rendering)
 - Tested on: Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
-- No dependencies or build tools required
+- No build tools required - Three.js loaded via CDN
+
+### Dependencies
+
+- **Three.js v0.160.0**: WebGL-based 3D/2D graphics library (loaded via CDN)
 
 ### Performance
 
-- Real-time rendering at 60 FPS
+- Hardware-accelerated WebGL rendering at 60 FPS
 - RSSI computation: O(n) per frame, n ≤ 6 radios
 - Heatmap rendering: ~20px resolution for performance
+- Enhanced anti-aliasing and high-DPI display support
 
 ## Educational Value
 
@@ -230,6 +238,7 @@ Built with assistance from Claude (Anthropic) based on PRD specifications.
 ---
 
 **Version History**:
+- **v1.2** (2025-11-06): Three.js integration for enhanced rendering quality with WebGL
 - **v1.1** (2025-11-06): RSSI-to-distance integration with path-loss model
 - **v1.0** (Initial): Basic geometric trilateration
 

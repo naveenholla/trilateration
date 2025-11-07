@@ -1892,16 +1892,7 @@ class TrilaterationSimulator {
             return;
         }
 
-        // Check if clicking on a wall first
-        this.selectedWall = null;
-        for (const wall of this.walls) {
-            if (wall.containsPoint({ x: canvasX, y: canvasY }, 15)) {
-                this.selectedWall = wall;
-                return;
-            }
-        }
-
-        // Then check for radio/device dragging
+        // FIRST: Check for radio/device dragging (highest priority)
         this.mouse.x = ((e.clientX - rect.left) / this.width) * 2 - 1;
         this.mouse.y = -((e.clientY - rect.top) / this.height) * 2 + 1;
 
@@ -1916,12 +1907,23 @@ class TrilaterationSimulator {
                     x: this.dragging.x - canvasX,
                     y: this.dragging.y - canvasY
                 };
+                return;  // Early return - device clicked
             } else if (obj.userData.type === 'radio') {
                 this.dragging = obj.userData.radio;
                 this.dragOffset = {
                     x: this.dragging.x - canvasX,
                     y: this.dragging.y - canvasY
                 };
+                return;  // Early return - radio clicked
+            }
+        }
+
+        // THEN: Check if clicking on a wall (only if no device/radio was clicked)
+        this.selectedWall = null;
+        for (const wall of this.walls) {
+            if (wall.containsPoint({ x: canvasX, y: canvasY }, 15)) {
+                this.selectedWall = wall;
+                return;
             }
         }
     }

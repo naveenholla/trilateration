@@ -10,7 +10,7 @@
     <div class="container">
         <header>
             <h1>Bluetooth Trilateration Simulator</h1>
-            <p class="subtitle">RSSI-to-Distance Conversion | v1.3 (Non-Linear Least Squares)</p>
+            <p class="subtitle">RSSI-to-Distance Conversion | v1.5 (Auto Wall Detection)</p>
         </header>
 
         <div class="main-content">
@@ -70,6 +70,169 @@
 
                     <hr>
 
+                    <h3>🗺️ Floor Plan</h3>
+
+                    <div class="control-group">
+                        <label for="floorPlanUpload" class="btn-secondary" style="cursor: pointer;">
+                            📁 Upload Floor Plan Image
+                        </label>
+                        <input type="file" id="floorPlanUpload" accept="image/*" style="display: none;">
+                        <div id="floorPlanInfo" style="font-size: 0.8em; color: #666; margin-top: 5px;"></div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="showFloorPlan">
+                            Show Floor Plan
+                        </label>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="floorPlanOpacity">Floor Plan Opacity:</label>
+                        <input type="range" id="floorPlanOpacity" value="0.5" step="0.05" min="0" max="1">
+                        <span class="value-display">0.5</span>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="floorPlanScale">Floor Plan Scale (px/m):</label>
+                        <input type="range" id="floorPlanScale" value="40" step="1" min="10" max="100">
+                        <span class="value-display">40</span>
+                        <small>(Adjust to match grid)</small>
+                    </div>
+
+                    <button id="clearFloorPlanBtn" class="btn-secondary" style="width: 100%;">Clear Floor Plan</button>
+
+                    <hr>
+
+                    <h3>🤖 Auto Wall Detection</h3>
+
+                    <div class="control-group">
+                        <button id="detectWallsBtn" class="btn-primary" style="width: 100%;" disabled>
+                            🔍 Detect Walls from Image
+                        </button>
+                        <small id="opencvStatus" style="color: #999;">Loading OpenCV.js...</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="cannyThreshold1">Edge Threshold 1:</label>
+                        <input type="range" id="cannyThreshold1" value="50" step="10" min="10" max="200">
+                        <span class="value-display">50</span>
+                        <small>(Lower = more edges)</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="cannyThreshold2">Edge Threshold 2:</label>
+                        <input type="range" id="cannyThreshold2" value="150" step="10" min="50" max="300">
+                        <span class="value-display">150</span>
+                        <small>(Higher = stronger edges only)</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="houghThreshold">Line Threshold:</label>
+                        <input type="range" id="houghThreshold" value="50" step="5" min="20" max="150">
+                        <span class="value-display">50</span>
+                        <small>(Higher = longer lines only)</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="minLineLength">Min Line Length (px):</label>
+                        <input type="range" id="minLineLength" value="50" step="10" min="20" max="200">
+                        <span class="value-display">50</span>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="maxLineGap">Max Line Gap (px):</label>
+                        <input type="range" id="maxLineGap" value="10" step="5" min="5" max="50">
+                        <span class="value-display">10</span>
+                        <small>(Connect nearby segments)</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="detectedWallMaterial">Detected Wall Material:</label>
+                        <select id="detectedWallMaterial">
+                            <option value="drywall" selected>Drywall (3 dB)</option>
+                            <option value="concrete">Concrete (10 dB)</option>
+                            <option value="brick">Brick (8 dB)</option>
+                        </select>
+                    </div>
+
+                    <div id="detectionStatus" style="font-size: 0.8em; color: #666; margin-top: 5px;"></div>
+
+                    <hr>
+
+                    <h3>🧱 Wall Attenuation</h3>
+
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="enableWalls">
+                            Enable Wall Attenuation
+                        </label>
+                    </div>
+
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="showWallIntersections">
+                            Show Wall Intersections
+                        </label>
+                    </div>
+
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="enableAngleEffect" checked>
+                            Apply Angle Effect
+                        </label>
+                        <small>(Less loss at shallow angles)</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="enableCumulativeEffect" checked>
+                            Apply Cumulative Effect
+                        </label>
+                        <small>(Each wall adds 10% more loss)</small>
+                    </div>
+
+                    <hr>
+
+                    <h3>✏️ Wall Editor</h3>
+
+                    <div class="control-group">
+                        <button id="drawWallBtn" class="btn-primary" style="width: 100%;">
+                            🖊️ Draw Wall Mode (OFF)
+                        </button>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="wallMaterial">Wall Material:</label>
+                        <select id="wallMaterial">
+                            <option value="drywall" selected>Drywall (3 dB)</option>
+                            <option value="concrete">Concrete (10 dB)</option>
+                            <option value="brick">Brick (8 dB)</option>
+                            <option value="glass">Glass (2 dB)</option>
+                            <option value="metal">Metal (20 dB)</option>
+                            <option value="door_wood">Wood Door (4 dB)</option>
+                            <option value="door_metal">Metal Door (12 dB)</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group">
+                        <button id="deleteWallBtn" class="btn-secondary" style="width: 100%;">
+                            🗑️ Delete Selected Wall
+                        </button>
+                    </div>
+
+                    <div class="control-group">
+                        <button id="clearAllWallsBtn" class="btn-secondary" style="width: 100%;">
+                            Clear All Walls
+                        </button>
+                    </div>
+
+                    <div id="wallEditorInfo" style="font-size: 0.8em; color: #666; margin-top: 10px;">
+                        Walls: <span id="wallCount">2</span>
+                    </div>
+
+                    <hr>
+
                     <div class="control-group">
                         <label for="numRadios">Number of Radios:</label>
                         <select id="numRadios">
@@ -125,7 +288,13 @@
         </div>
     </div>
 
+    <!-- Three.js for 3D rendering -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+    <!-- OpenCV.js for computer vision (wall detection) -->
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+
+    <!-- Main application -->
     <script src="app.js"></script>
 </body>
 </html>

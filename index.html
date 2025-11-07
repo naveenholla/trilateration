@@ -10,7 +10,7 @@
     <div class="container">
         <header>
             <h1>Bluetooth Trilateration Simulator</h1>
-            <p class="subtitle">RSSI-to-Distance Conversion | v1.4 (Wall Attenuation)</p>
+            <p class="subtitle">RSSI-to-Distance Conversion | v1.5 (Auto Wall Detection)</p>
         </header>
 
         <div class="main-content">
@@ -101,6 +101,62 @@
                     </div>
 
                     <button id="clearFloorPlanBtn" class="btn-secondary" style="width: 100%;">Clear Floor Plan</button>
+
+                    <hr>
+
+                    <h3>🤖 Auto Wall Detection</h3>
+
+                    <div class="control-group">
+                        <button id="detectWallsBtn" class="btn-primary" style="width: 100%;" disabled>
+                            🔍 Detect Walls from Image
+                        </button>
+                        <small id="opencvStatus" style="color: #999;">Loading OpenCV.js...</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="cannyThreshold1">Edge Threshold 1:</label>
+                        <input type="range" id="cannyThreshold1" value="50" step="10" min="10" max="200">
+                        <span class="value-display">50</span>
+                        <small>(Lower = more edges)</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="cannyThreshold2">Edge Threshold 2:</label>
+                        <input type="range" id="cannyThreshold2" value="150" step="10" min="50" max="300">
+                        <span class="value-display">150</span>
+                        <small>(Higher = stronger edges only)</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="houghThreshold">Line Threshold:</label>
+                        <input type="range" id="houghThreshold" value="50" step="5" min="20" max="150">
+                        <span class="value-display">50</span>
+                        <small>(Higher = longer lines only)</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="minLineLength">Min Line Length (px):</label>
+                        <input type="range" id="minLineLength" value="50" step="10" min="20" max="200">
+                        <span class="value-display">50</span>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="maxLineGap">Max Line Gap (px):</label>
+                        <input type="range" id="maxLineGap" value="10" step="5" min="5" max="50">
+                        <span class="value-display">10</span>
+                        <small>(Connect nearby segments)</small>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="detectedWallMaterial">Detected Wall Material:</label>
+                        <select id="detectedWallMaterial">
+                            <option value="drywall" selected>Drywall (3 dB)</option>
+                            <option value="concrete">Concrete (10 dB)</option>
+                            <option value="brick">Brick (8 dB)</option>
+                        </select>
+                    </div>
+
+                    <div id="detectionStatus" style="font-size: 0.8em; color: #666; margin-top: 5px;"></div>
 
                     <hr>
 
@@ -232,7 +288,13 @@
         </div>
     </div>
 
+    <!-- Three.js for 3D rendering -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+    <!-- OpenCV.js for computer vision (wall detection) -->
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+
+    <!-- Main application -->
     <script src="app.js"></script>
 </body>
 </html>

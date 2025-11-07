@@ -1,7 +1,43 @@
 // =============================================================================
 // Bluetooth Trilateration Simulator - RSSI Edition with Three.js
-// Version 1.4 - Wall Attenuation & Floor Map Integration
+// Version 1.5 - Automatic Wall Detection with OpenCV.js
 // =============================================================================
+
+// =============================================================================
+// OpenCV.js Ready Callback
+// =============================================================================
+
+let opencvReady = false;
+
+function onOpenCvReady() {
+    opencvReady = true;
+    console.log('✅ OpenCV.js loaded successfully');
+
+    // Update UI
+    const statusEl = document.getElementById('opencvStatus');
+    const btnEl = document.getElementById('detectWallsBtn');
+
+    if (statusEl) {
+        statusEl.textContent = '✓ OpenCV.js ready';
+        statusEl.style.color = '#4CAF50';
+    }
+
+    if (btnEl) {
+        btnEl.disabled = false;
+    }
+}
+
+// Fallback if OpenCV doesn't load
+setTimeout(() => {
+    if (!opencvReady) {
+        console.warn('⚠️ OpenCV.js failed to load after 10 seconds');
+        const statusEl = document.getElementById('opencvStatus');
+        if (statusEl) {
+            statusEl.textContent = '✗ OpenCV.js failed to load';
+            statusEl.style.color = '#F44336';
+        }
+    }
+}, 10000);
 
 // =============================================================================
 // Wall Materials & Constants
@@ -325,6 +361,16 @@ class TrilaterationSimulator {
             show: false
         };
 
+        // OpenCV wall detection parameters
+        this.wallDetection = {
+            cannyThreshold1: 50,
+            cannyThreshold2: 150,
+            houghThreshold: 50,
+            minLineLength: 50,
+            maxLineGap: 10,
+            detectedMaterial: 'drywall'
+        };
+
         // Scale factor (pixels per meter)
         this.scale = 40; // 40 pixels = 1 meter
 
@@ -576,6 +622,40 @@ class TrilaterationSimulator {
 
         document.getElementById('clearFloorPlanBtn').addEventListener('click', () => {
             this.clearFloorPlan();
+        });
+
+        // Wall detection controls
+        document.getElementById('detectWallsBtn').addEventListener('click', () => {
+            this.detectWallsFromImage();
+        });
+
+        document.getElementById('cannyThreshold1').addEventListener('input', (e) => {
+            this.wallDetection.cannyThreshold1 = parseInt(e.target.value);
+            document.querySelector('#cannyThreshold1 + .value-display').textContent = e.target.value;
+        });
+
+        document.getElementById('cannyThreshold2').addEventListener('input', (e) => {
+            this.wallDetection.cannyThreshold2 = parseInt(e.target.value);
+            document.querySelector('#cannyThreshold2 + .value-display').textContent = e.target.value;
+        });
+
+        document.getElementById('houghThreshold').addEventListener('input', (e) => {
+            this.wallDetection.houghThreshold = parseInt(e.target.value);
+            document.querySelector('#houghThreshold + .value-display').textContent = e.target.value;
+        });
+
+        document.getElementById('minLineLength').addEventListener('input', (e) => {
+            this.wallDetection.minLineLength = parseInt(e.target.value);
+            document.querySelector('#minLineLength + .value-display').textContent = e.target.value;
+        });
+
+        document.getElementById('maxLineGap').addEventListener('input', (e) => {
+            this.wallDetection.maxLineGap = parseInt(e.target.value);
+            document.querySelector('#maxLineGap + .value-display').textContent = e.target.value;
+        });
+
+        document.getElementById('detectedWallMaterial').addEventListener('change', (e) => {
+            this.wallDetection.detectedMaterial = e.target.value;
         });
 
         document.getElementById('enableWalls').addEventListener('change', (e) => {
@@ -1280,6 +1360,247 @@ class TrilaterationSimulator {
         document.getElementById('floorPlanUpload').value = '';
         document.getElementById('showFloorPlan').checked = false;
         document.getElementById('floorPlanInfo').textContent = '';
+    }
+
+    // =========================================================================
+    // Automatic Wall Detection with OpenCV.js
+    // =========================================================================
+
+    /**
+     * Detect walls from uploaded floor plan image using computer vision
+     */
+    detectWallsFromImage() {
+        if (!opencvReady) {
+            alert('OpenCV.js is not loaded yet. Please wait or refresh the page.');
+            return;
+        }
+
+        if (!this.floorPlan.image) {
+            alert('Please upload a floor plan image first.');
+            return;
+        }
+
+        const statusEl = document.getElementById('detectionStatus');
+        statusEl.textContent = 'Detecting walls...';
+        statusEl.style.color = '#FF9800';
+
+        // Use setTimeout to allow UI to update
+        setTimeout(() => {
+            try {
+                const detectedWalls = this.runWallDetection(this.floorPlan.image);
+
+                // Convert detected lines to Wall objects
+                const newWalls = detectedWalls.map(line => {
+                    return new Wall(
+                        { x: line.x1, y: line.y1 },
+                        { x: line.x2, y: line.y2 },
+                        this.wallDetection.detectedMaterial
+                    );
+                });
+
+                // Add to existing walls
+                this.walls.push(...newWalls);
+
+                // Update UI
+                statusEl.textContent = `✓ Detected ${newWalls.length} walls`;
+                statusEl.style.color = '#4CAF50';
+                this.updateWallCount();
+
+                // Auto-enable walls
+                if (newWalls.length > 0) {
+                    document.getElementById('enableWalls').checked = true;
+                    this.enableWalls = true;
+                }
+
+                console.log(`✅ Detected ${newWalls.length} walls from floor plan`);
+            } catch (error) {
+                console.error('❌ Wall detection error:', error);
+                statusEl.textContent = `✗ Detection failed: ${error.message}`;
+                statusEl.style.color = '#F44336';
+            }
+        }, 10);
+    }
+
+    /**
+     * Run OpenCV edge and line detection
+     * @returns {Array} Array of detected line segments
+     */
+    runWallDetection(image) {
+        const cv = window.cv;
+        if (!cv) {
+            throw new Error('OpenCV not available');
+        }
+
+        console.log('🔍 Starting wall detection...');
+
+        // Create canvas to draw image
+        const canvas = document.createElement('canvas');
+        canvas.width = this.width;
+        canvas.height = this.height;
+        const ctx = canvas.getContext('2d');
+
+        // Draw image to canvas (scaled to match simulator dimensions)
+        ctx.drawImage(image, 0, 0, this.width, this.height);
+
+        // Read image into OpenCV Mat
+        const src = cv.imread(canvas);
+        const gray = new cv.Mat();
+        const edges = new cv.Mat();
+
+        // Convert to grayscale
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+        console.log('✓ Converted to grayscale');
+
+        // Apply Gaussian blur to reduce noise
+        const ksize = new cv.Size(5, 5);
+        cv.GaussianBlur(gray, gray, ksize, 0, 0, cv.BORDER_DEFAULT);
+        console.log('✓ Applied Gaussian blur');
+
+        // Canny edge detection
+        cv.Canny(
+            gray,
+            edges,
+            this.wallDetection.cannyThreshold1,
+            this.wallDetection.cannyThreshold2,
+            3,
+            false
+        );
+        console.log('✓ Canny edge detection complete');
+
+        // Hough Line Transform (Probabilistic)
+        const lines = new cv.Mat();
+        cv.HoughLinesP(
+            edges,
+            lines,
+            1,                                      // rho: distance resolution (pixels)
+            Math.PI / 180,                          // theta: angle resolution (radians)
+            this.wallDetection.houghThreshold,      // threshold: min votes
+            this.wallDetection.minLineLength,       // minLineLength
+            this.wallDetection.maxLineGap          // maxLineGap
+        );
+        console.log(`✓ Hough Line Transform: found ${lines.rows} lines`);
+
+        // Extract line segments
+        const detectedLines = [];
+        for (let i = 0; i < lines.rows; i++) {
+            const x1 = lines.data32S[i * 4];
+            const y1 = lines.data32S[i * 4 + 1];
+            const x2 = lines.data32S[i * 4 + 2];
+            const y2 = lines.data32S[i * 4 + 3];
+
+            // Calculate line length
+            const length = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+
+            // Filter out very short lines (noise)
+            if (length >= this.wallDetection.minLineLength) {
+                detectedLines.push({ x1, y1, x2, y2, length });
+            }
+        }
+
+        // Merge nearby parallel lines
+        const mergedLines = this.mergeParallelLines(detectedLines);
+        console.log(`✓ Merged to ${mergedLines.length} wall segments`);
+
+        // Clean up OpenCV Mats
+        src.delete();
+        gray.delete();
+        edges.delete();
+        lines.delete();
+
+        return mergedLines;
+    }
+
+    /**
+     * Merge nearby parallel lines to reduce noise
+     * @param {Array} lines - Array of line segments
+     * @returns {Array} Merged lines
+     */
+    mergeParallelLines(lines) {
+        if (lines.length === 0) return [];
+
+        // Sort by length (longest first)
+        lines.sort((a, b) => b.length - a.length);
+
+        const merged = [];
+        const used = new Set();
+
+        const ANGLE_THRESHOLD = 10; // degrees
+        const DISTANCE_THRESHOLD = 20; // pixels
+
+        for (let i = 0; i < lines.length; i++) {
+            if (used.has(i)) continue;
+
+            const line1 = lines[i];
+            const angle1 = Math.atan2(line1.y2 - line1.y1, line1.x2 - line1.x1) * 180 / Math.PI;
+
+            // Find similar lines
+            const group = [line1];
+            used.add(i);
+
+            for (let j = i + 1; j < lines.length; j++) {
+                if (used.has(j)) continue;
+
+                const line2 = lines[j];
+                const angle2 = Math.atan2(line2.y2 - line2.y1, line2.x2 - line2.x1) * 180 / Math.PI;
+
+                // Check if angles are similar
+                const angleDiff = Math.abs(angle1 - angle2);
+                const normalizedAngleDiff = Math.min(angleDiff, 180 - angleDiff);
+
+                if (normalizedAngleDiff < ANGLE_THRESHOLD) {
+                    // Check if lines are close to each other
+                    const distance = this.lineToLineDistance(line1, line2);
+
+                    if (distance < DISTANCE_THRESHOLD) {
+                        group.push(line2);
+                        used.add(j);
+                    }
+                }
+            }
+
+            // Average the group into a single line
+            if (group.length === 1) {
+                merged.push(line1);
+            } else {
+                const avgLine = this.averageLines(group);
+                merged.push(avgLine);
+            }
+        }
+
+        return merged;
+    }
+
+    /**
+     * Calculate distance between two lines
+     */
+    lineToLineDistance(line1, line2) {
+        const midX1 = (line1.x1 + line1.x2) / 2;
+        const midY1 = (line1.y1 + line1.y2) / 2;
+        const midX2 = (line2.x1 + line2.x2) / 2;
+        const midY2 = (line2.y1 + line2.y2) / 2;
+
+        return Math.sqrt((midX2 - midX1) ** 2 + (midY2 - midY1) ** 2);
+    }
+
+    /**
+     * Average multiple lines into a single line
+     */
+    averageLines(lines) {
+        const n = lines.length;
+        const avgX1 = lines.reduce((sum, l) => sum + l.x1, 0) / n;
+        const avgY1 = lines.reduce((sum, l) => sum + l.y1, 0) / n;
+        const avgX2 = lines.reduce((sum, l) => sum + l.x2, 0) / n;
+        const avgY2 = lines.reduce((sum, l) => sum + l.y2, 0) / n;
+
+        const length = Math.sqrt((avgX2 - avgX1) ** 2 + (avgY2 - avgY1) ** 2);
+
+        return {
+            x1: Math.round(avgX1),
+            y1: Math.round(avgY1),
+            x2: Math.round(avgX2),
+            y2: Math.round(avgY2),
+            length
+        };
     }
 
     updateRadios() {

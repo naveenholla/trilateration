@@ -1025,6 +1025,42 @@ class TrilaterationSimulator {
     // Three.js Rendering
     // =========================================================================
 
+    /**
+     * Properly dispose of Three.js resources to prevent memory leaks
+     * @param {THREE.Group} group - Group to dispose
+     */
+    disposeGroup(group) {
+        while (group.children.length > 0) {
+            const object = group.children[0];
+
+            // Dispose geometry
+            if (object.geometry) {
+                object.geometry.dispose();
+            }
+
+            // Dispose material(s)
+            if (object.material) {
+                if (Array.isArray(object.material)) {
+                    object.material.forEach(material => {
+                        if (material.map) material.map.dispose();
+                        material.dispose();
+                    });
+                } else {
+                    if (object.material.map) object.material.map.dispose();
+                    object.material.dispose();
+                }
+            }
+
+            // Dispose texture
+            if (object.texture) {
+                object.texture.dispose();
+            }
+
+            // Remove from group
+            group.remove(object);
+        }
+    }
+
     animate() {
         requestAnimationFrame(() => this.animate());
         this.render();
@@ -1052,7 +1088,8 @@ class TrilaterationSimulator {
     }
 
     updateHeatmap() {
-        this.heatmapGroup.clear();
+        // Properly dispose of old geometries and materials
+        this.disposeGroup(this.heatmapGroup);
 
         if (!this.enableHeatmap) return;
 
@@ -1093,7 +1130,7 @@ class TrilaterationSimulator {
     }
 
     updateRangingCircles(measurements) {
-        this.circlesGroup.clear();
+        this.disposeGroup(this.circlesGroup);
 
         for (const m of measurements) {
             const radius = m.estimatedDistance * this.scale;
@@ -1130,7 +1167,7 @@ class TrilaterationSimulator {
     }
 
     updateDebugLines() {
-        this.debugLinesGroup.clear();
+        this.disposeGroup(this.debugLinesGroup);
 
         if (!this.showDebugLines) return;
 
@@ -1155,7 +1192,7 @@ class TrilaterationSimulator {
     }
 
     updateWalls() {
-        this.wallsGroup.clear();
+        this.disposeGroup(this.wallsGroup);
 
         // Render permanent walls
         const wallsToRender = this.enableWalls ? this.walls : [];
@@ -1244,7 +1281,7 @@ class TrilaterationSimulator {
     }
 
     updateWallIntersections(measurements) {
-        this.wallIntersectionsGroup.clear();
+        this.disposeGroup(this.wallIntersectionsGroup);
 
         if (!this.enableWalls || !this.showWallIntersections) return;
 
@@ -1349,12 +1386,17 @@ class TrilaterationSimulator {
     }
 
     clearFloorPlan() {
+        // Dispose of floor plan resources
+        if (this.floorPlan.texture) {
+            this.floorPlan.texture.dispose();
+        }
+
+        this.disposeGroup(this.floorPlanGroup);
+
         this.floorPlan.image = null;
         this.floorPlan.texture = null;
         this.floorPlan.mesh = null;
         this.floorPlan.show = false;
-
-        this.floorPlanGroup.clear();
 
         // Reset UI
         document.getElementById('floorPlanUpload').value = '';
@@ -1507,6 +1549,10 @@ class TrilaterationSimulator {
         edges.delete();
         lines.delete();
 
+        // Clean up temporary canvas (help GC)
+        canvas.width = 0;
+        canvas.height = 0;
+
         return mergedLines;
     }
 
@@ -1604,7 +1650,7 @@ class TrilaterationSimulator {
     }
 
     updateRadios() {
-        this.radiosGroup.clear();
+        this.disposeGroup(this.radiosGroup);
         this.interactiveObjects = [];
 
         for (const radio of this.radios) {
@@ -1635,7 +1681,7 @@ class TrilaterationSimulator {
     }
 
     updateDevice() {
-        this.deviceGroup.clear();
+        this.disposeGroup(this.deviceGroup);
 
         const threePos = this.canvasToThree(this.device.x, this.device.y);
 
@@ -1679,7 +1725,7 @@ class TrilaterationSimulator {
     }
 
     updateEstimatedPosition() {
-        this.estimatedGroup.clear();
+        this.disposeGroup(this.estimatedGroup);
 
         if (!this.estimatedPosition) return;
 

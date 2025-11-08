@@ -563,6 +563,29 @@ class TrilaterationSimulator {
             }
         });
 
+        // Tab navigation
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const tabName = btn.getAttribute('data-tab');
+
+                // Remove active class from all buttons and contents
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+                // Add active class to clicked button and corresponding content
+                btn.classList.add('active');
+                document.querySelector(`.tab-content[data-tab="${tabName}"]`).classList.add('active');
+            });
+        });
+
+        // Collapsible sections
+        document.querySelectorAll('.collapsible-header').forEach(header => {
+            header.addEventListener('click', (e) => {
+                const section = header.parentElement;
+                section.classList.toggle('open');
+            });
+        });
+
         // Controls
         document.getElementById('txPower').addEventListener('input', (e) => {
             this.txPower = parseFloat(e.target.value);

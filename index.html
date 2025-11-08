@@ -309,6 +309,50 @@
 
             <!-- Center: Canvas -->
             <main class="canvas-container">
+                <!-- Quick Actions Toolbar -->
+                <div class="canvas-toolbar">
+                    <div class="toolbar-section">
+                        <button id="quickDrawWall" class="toolbar-btn" title="Toggle Draw Wall Mode">
+                            <span class="icon">🖊️</span>
+                            <span class="label">Draw Wall</span>
+                        </button>
+                        <button id="quickEnableWalls" class="toolbar-btn" title="Toggle Wall Attenuation">
+                            <span class="icon">🧱</span>
+                            <span class="label">Walls</span>
+                        </button>
+                        <button id="quickFloorPlan" class="toolbar-btn" title="Toggle Floor Plan">
+                            <span class="icon">🗺️</span>
+                            <span class="label">Floor Plan</span>
+                        </button>
+                    </div>
+                    <div class="toolbar-section">
+                        <button id="quickNoise" class="toolbar-btn" title="Toggle Noise">
+                            <span class="icon">📶</span>
+                            <span class="label">Noise</span>
+                        </button>
+                        <button id="quickHeatmap" class="toolbar-btn" title="Toggle Heatmap">
+                            <span class="icon">🔥</span>
+                            <span class="label">Heatmap</span>
+                        </button>
+                        <button id="quickDebug" class="toolbar-btn" title="Toggle Debug Lines">
+                            <span class="icon">🔍</span>
+                            <span class="label">Debug</span>
+                        </button>
+                    </div>
+                    <div class="toolbar-section">
+                        <button id="quickReset" class="toolbar-btn" title="Reset Positions">
+                            <span class="icon">🔄</span>
+                            <span class="label">Reset</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Mode Indicator -->
+                <div id="modeIndicator" class="mode-indicator">
+                    <span class="mode-icon">👆</span>
+                    <span class="mode-text">Click and drag to move radios and device</span>
+                </div>
+
                 <canvas id="mainCanvas" width="800" height="600"></canvas>
                 <div id="statusMessage" class="status-message"></div>
             </main>

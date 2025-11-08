@@ -415,6 +415,7 @@ class TrilaterationSimulator {
         this.createGrid();
         this.setupEventListeners();
         this.updateUI();
+        this.updateToolbarState();
         this.animate();
     }
 
@@ -560,6 +561,7 @@ class TrilaterationSimulator {
                 btn.textContent = '🖊️ Draw Wall Mode (OFF)';
                 btn.style.backgroundColor = '';
                 this.canvas.style.cursor = 'default';
+                this.updateToolbarState();
             }
         });
 
@@ -584,6 +586,54 @@ class TrilaterationSimulator {
                 const section = header.parentElement;
                 section.classList.toggle('open');
             });
+        });
+
+        // Quick toolbar actions
+        document.getElementById('quickDrawWall').addEventListener('click', () => {
+            document.getElementById('drawWallBtn').click();
+            this.updateToolbarState();
+        });
+
+        document.getElementById('quickEnableWalls').addEventListener('click', () => {
+            const checkbox = document.getElementById('enableWalls');
+            checkbox.checked = !checkbox.checked;
+            this.enableWalls = checkbox.checked;
+            this.updateToolbarState();
+        });
+
+        document.getElementById('quickFloorPlan').addEventListener('click', () => {
+            const checkbox = document.getElementById('showFloorPlan');
+            checkbox.checked = !checkbox.checked;
+            this.floorPlan.show = checkbox.checked;
+            this.updateFloorPlan();
+            this.updateToolbarState();
+        });
+
+        document.getElementById('quickNoise').addEventListener('click', () => {
+            const checkbox = document.getElementById('enableNoise');
+            checkbox.checked = !checkbox.checked;
+            this.enableNoise = checkbox.checked;
+            document.getElementById('noiseLevel').disabled = !this.enableNoise;
+            this.updateUI();
+            this.updateToolbarState();
+        });
+
+        document.getElementById('quickHeatmap').addEventListener('click', () => {
+            const checkbox = document.getElementById('enableHeatmap');
+            checkbox.checked = !checkbox.checked;
+            this.enableHeatmap = checkbox.checked;
+            this.updateToolbarState();
+        });
+
+        document.getElementById('quickDebug').addEventListener('click', () => {
+            const checkbox = document.getElementById('showDebugLines');
+            checkbox.checked = !checkbox.checked;
+            this.showDebugLines = checkbox.checked;
+            this.updateToolbarState();
+        });
+
+        document.getElementById('quickReset').addEventListener('click', () => {
+            document.getElementById('resetBtn').click();
         });
 
         // Controls
@@ -704,6 +754,7 @@ class TrilaterationSimulator {
             btn.textContent = this.drawWallMode ? '🖊️ Draw Wall Mode (ON)' : '🖊️ Draw Wall Mode (OFF)';
             btn.style.backgroundColor = this.drawWallMode ? '#4CAF50' : '';
             this.canvas.style.cursor = this.drawWallMode ? 'crosshair' : 'default';
+            this.updateToolbarState();
         });
 
         document.getElementById('wallMaterial').addEventListener('change', (e) => {
@@ -742,6 +793,42 @@ class TrilaterationSimulator {
         document.querySelector('#pathLossExponent + .value-display').textContent = this.pathLossExponent.toFixed(1);
         document.querySelector('#minRSSI + .value-display').textContent = `${this.minRSSI} dBm`;
         document.querySelector('#noiseLevel + .value-display').textContent = this.noiseStdDev.toFixed(1);
+    }
+
+    updateToolbarState() {
+        // Update toolbar button states to reflect current settings
+        const updateBtn = (id, active) => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                if (active) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            }
+        };
+
+        updateBtn('quickDrawWall', this.drawWallMode);
+        updateBtn('quickEnableWalls', this.enableWalls);
+        updateBtn('quickFloorPlan', this.floorPlan.show);
+        updateBtn('quickNoise', this.enableNoise);
+        updateBtn('quickHeatmap', this.enableHeatmap);
+        updateBtn('quickDebug', this.showDebugLines);
+
+        // Update mode indicator
+        const modeIndicator = document.getElementById('modeIndicator');
+        const modeIcon = modeIndicator.querySelector('.mode-icon');
+        const modeText = modeIndicator.querySelector('.mode-text');
+
+        if (this.drawWallMode) {
+            modeIndicator.classList.add('draw-mode');
+            modeIcon.textContent = '🖊️';
+            modeText.textContent = 'Draw Wall Mode: Click to place wall endpoints';
+        } else {
+            modeIndicator.classList.remove('draw-mode');
+            modeIcon.textContent = '👆';
+            modeText.textContent = 'Click and drag to move radios and device';
+        }
     }
 
     // =========================================================================

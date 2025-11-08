@@ -316,8 +316,108 @@ header h1 {
     padding: 20px;
     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     display: flex;
-    justify-content: center;
+    flex-direction: column;
     align-items: center;
+    gap: 15px;
+}
+
+/* Canvas Toolbar */
+.canvas-toolbar {
+    display: flex;
+    gap: 15px;
+    padding: 10px 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.toolbar-section {
+    display: flex;
+    gap: 8px;
+    padding: 0 10px;
+    border-right: 1px solid #dee2e6;
+}
+
+.toolbar-section:last-child {
+    border-right: none;
+}
+
+.toolbar-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 12px;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 70px;
+}
+
+.toolbar-btn:hover {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.toolbar-btn.active {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+.toolbar-btn .icon {
+    font-size: 1.2em;
+}
+
+.toolbar-btn .label {
+    font-size: 0.75em;
+    font-weight: 500;
+}
+
+/* Mode Indicator */
+.mode-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: 500;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    animation: slideDown 0.3s;
+}
+
+.mode-indicator.draw-mode {
+    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+}
+
+.mode-indicator.hidden {
+    display: none;
+}
+
+.mode-icon {
+    font-size: 1.1em;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 #mainCanvas {

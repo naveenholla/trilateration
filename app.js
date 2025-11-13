@@ -1,6 +1,6 @@
 // =============================================================================
 // Bluetooth Trilateration Simulator - RSSI Edition with Three.js
-// Version 1.5 - Automatic Wall Detection with OpenCV.js
+// Version 1.6 - Phase 1: Kalman Filter + Weighted Least Squares
 // =============================================================================
 
 // =============================================================================
@@ -341,6 +341,12 @@ class TrilaterationSimulator {
         this.enableNoise = false;
         this.noiseStdDev = 5;
 
+        // Kalman filter settings (Phase 1 improvement)
+        this.enableKalmanFilter = true;
+        this.kalmanR = 0.01;  // Measurement noise covariance
+        this.kalmanQ = 3;     // Process noise covariance
+        this.rssiKalmanFilters = [];
+
         // Visualization options
         this.showDebugLines = false;
         this.enableHeatmap = false;
@@ -442,6 +448,9 @@ class TrilaterationSimulator {
         const width = this.width - 2 * margin;
         const height = this.height - 2 * margin;
 
+        // Initialize Kalman filters for each radio (Phase 1 improvement)
+        this.rssiKalmanFilters = [];
+
         // Position radios in a pattern based on count
         if (this.numRadios === 3) {
             // Triangle
@@ -486,6 +495,14 @@ class TrilaterationSimulator {
                     label: `R${i + 1}`
                 });
             }
+        }
+
+        // Create Kalman filter for each radio (Phase 1 improvement)
+        for (let i = 0; i < this.radios.length; i++) {
+            this.rssiKalmanFilters.push(new KalmanFilter({
+                R: this.kalmanR,
+                Q: this.kalmanQ
+            }));
         }
     }
 
@@ -663,6 +680,28 @@ class TrilaterationSimulator {
             this.updateUI();
         });
 
+        // Kalman filter controls (Phase 1 improvement)
+        document.getElementById('enableKalmanFilter').addEventListener('change', (e) => {
+            this.enableKalmanFilter = e.target.checked;
+            // Reinitialize filters when toggled
+            this.initializeRadios();
+            this.updateUI();
+        });
+
+        document.getElementById('kalmanR').addEventListener('input', (e) => {
+            this.kalmanR = parseFloat(e.target.value);
+            // Reinitialize filters with new parameters
+            this.initializeRadios();
+            this.updateUI();
+        });
+
+        document.getElementById('kalmanQ').addEventListener('input', (e) => {
+            this.kalmanQ = parseFloat(e.target.value);
+            // Reinitialize filters with new parameters
+            this.initializeRadios();
+            this.updateUI();
+        });
+
         document.getElementById('showDebugLines').addEventListener('change', (e) => {
             this.showDebugLines = e.target.checked;
         });
@@ -793,6 +832,10 @@ class TrilaterationSimulator {
         document.querySelector('#pathLossExponent + .value-display').textContent = this.pathLossExponent.toFixed(1);
         document.querySelector('#minRSSI + .value-display').textContent = `${this.minRSSI} dBm`;
         document.querySelector('#noiseLevel + .value-display').textContent = this.noiseStdDev.toFixed(1);
+
+        // Update Kalman filter parameter displays (Phase 1 improvement)
+        document.querySelector('#kalmanR + .value-display').textContent = this.kalmanR.toFixed(3);
+        document.querySelector('#kalmanQ + .value-display').textContent = this.kalmanQ.toFixed(1);
     }
 
     updateToolbarState() {
@@ -891,6 +934,18 @@ class TrilaterationSimulator {
         if (this.enableNoise) {
             const noise = this.gaussianRandom(0, this.noiseStdDev);
             rssi += noise;
+        }
+
+        // Apply Kalman filter if enabled (Phase 1 improvement)
+        if (this.enableKalmanFilter && transmitter && this.rssiKalmanFilters.length > 0) {
+            // Find which radio this is
+            const radioIndex = this.radios.findIndex(r =>
+                Math.abs(r.x - transmitter.x) < 0.1 && Math.abs(r.y - transmitter.y) < 0.1
+            );
+
+            if (radioIndex !== -1 && radioIndex < this.rssiKalmanFilters.length) {
+                rssi = this.rssiKalmanFilters[radioIndex].filter(rssi);
+            }
         }
 
         // Clamp to realistic range
@@ -1050,14 +1105,21 @@ class TrilaterationSimulator {
                 const J_x = dx / predictedDist;
                 const J_y = dy / predictedDist;
 
-                // Accumulate J^T * J
-                sumJtJ_xx += J_x * J_x;
-                sumJtJ_yy += J_y * J_y;
-                sumJtJ_xy += J_x * J_y;
+                // Calculate weight based on RSSI quality (Phase 1 improvement)
+                // Stronger signals (higher RSSI) get more weight in the optimization
+                // Normalize RSSI from -100 to -60 dBm range
+                const normalizedRSSI = Math.max(0, Math.min(1, (m.rssi + 100) / 40));
+                // Use exponential weighting: stronger signals have exponentially more influence
+                const weight = Math.pow(10, normalizedRSSI);
 
-                // Accumulate J^T * r
-                sumJtr_x += J_x * residual;
-                sumJtr_y += J_y * residual;
+                // Accumulate J^T * W * J (weighted)
+                sumJtJ_xx += J_x * J_x * weight;
+                sumJtJ_yy += J_y * J_y * weight;
+                sumJtJ_xy += J_x * J_y * weight;
+
+                // Accumulate J^T * W * r (weighted)
+                sumJtr_x += J_x * residual * weight;
+                sumJtr_y += J_y * residual * weight;
             }
 
             // Solve 2x2 system: [sumJtJ_xx, sumJtJ_xy] [delta_x] = -[sumJtr_x]

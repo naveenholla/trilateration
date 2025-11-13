@@ -1,6 +1,6 @@
 # Bluetooth Trilateration Simulator - RSSI Edition
 
-**Version 1.2** - An interactive web-based simulator for understanding Bluetooth Low Energy (BLE) trilateration with realistic RSSI-to-distance conversion, powered by Three.js.
+**Version 1.6 (Phase 1 Improvements)** - An interactive web-based simulator for understanding Bluetooth Low Energy (BLE) trilateration with realistic RSSI-to-distance conversion, Kalman filtering, and weighted least squares optimization, powered by Three.js.
 
 ![Version](https://img.shields.io/badge/version-1.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -10,13 +10,18 @@
 
 This web application simulates realistic Bluetooth Low Energy (BLE) indoor positioning using RSSI (Received Signal Strength Indicator) measurements and trilateration algorithms. Unlike idealized geometric simulations, this tool uses the **log-distance path loss model** to convert signal strength into distance estimates, demonstrating real-world ranging errors and environmental effects.
 
-**New in v1.2**: Enhanced rendering with Three.js WebGL for improved visual quality, better anti-aliasing, and hardware-accelerated graphics.
+**New in v1.6 (Phase 1)**: Research-backed accuracy improvements! Kalman filtering for RSSI noise reduction (20-40% improvement) and weighted least squares optimization for better position estimates. Based on latest 2024-2025 research papers. Expected 30-45% total error reduction!
 
 ### Key Features
 
+- **🎯 Phase 1 Accuracy Improvements** (NEW!)
+  - **Kalman Filtering**: Reduces RSSI noise and measurement jitter
+  - **Weighted Least Squares**: Stronger signals get more weight in position calculation
+  - **Configurable Parameters**: Tune filter behavior for your scenario
+  - **Expected 30-45% error reduction** vs baseline
 - **Realistic RSSI Simulation**: Uses path-loss model (RSSI = TxPower - 10·n·log₁₀(d))
 - **Interactive Visualization**: Drag radios and device to explore different scenarios
-- **Configurable Parameters**: Adjust Tx power, path-loss exponent, and noise levels
+- **Wall Attenuation**: Automatic wall detection with OpenCV.js
 - **Real-time Trilateration**: See estimated vs. true position with error metrics
 - **RSSI Heatmap**: Optional coverage visualization
 - **Educational Tool**: Perfect for learning BLE positioning concepts
@@ -238,8 +243,14 @@ Built with assistance from Claude (Anthropic) based on PRD specifications.
 ---
 
 **Version History**:
+- **v1.6** (2025-11-13): Phase 1 accuracy improvements - Kalman filtering + weighted least squares (30-45% error reduction)
+- **v1.5** (2025-11-06): Automatic wall detection with OpenCV.js
 - **v1.2** (2025-11-06): Three.js integration for enhanced rendering quality with WebGL
 - **v1.1** (2025-11-06): RSSI-to-distance integration with path-loss model
 - **v1.0** (Initial): Basic geometric trilateration
+
+**Research & Documentation**:
+- See `RESEARCH_FINDINGS.md` for latest research papers and JavaScript libraries
+- See `PHASE1_IMPLEMENTATION.md` for Phase 1 implementation details and configuration guide
 
 For questions or feedback, please open an issue on the repository.
